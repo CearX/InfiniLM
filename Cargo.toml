@@ -13,6 +13,9 @@ members = [
 
     "models/clip/common",
     "models/clip/common-cpu",
+
+    "models/gpt2/common", 
+    "models/gpt2/common-cpu", 
 ]
 resolver = "2"
 
