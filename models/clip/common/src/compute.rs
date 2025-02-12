@@ -178,7 +178,7 @@ where
 
         {
             let pos_embd = self.weights.pos_embd(queue);
-            self.add_rows(&mut embd, &pos_embd, &pos, workspace, queue_alloc)?
+            self.add_rows(&mut embd, &pos_embd, &pos, workspace, queue_alloc)?; // embd:[8, 1026, 1152]; pos_embd: [4900, 1152]; pos: [8, 1026]
         }
 
         let &[batch, size, _] = embd.shape() else {
@@ -316,9 +316,14 @@ where
         let (buf, workspace) = workspace.split_at_mut(*k.get());
         let mut k = k.map(|_| buf);
 
-        let pos = self.weights.r_pos_k(queue); // [4900, 3584]
-        let pos = pos.slice(0, 0, 1, np); // [4000, 3584], 取前4000个pos;
-        self.add(&mut k, &v, &pos, workspace, queue_alloc)?;
+        self.rearrange(&mut k, &v, workspace, queue_alloc)?;
+
+        let mut k = k.tile(0, &[batch, size]); // [8208, 3584] -> [8, 1026, 3584]
+
+        let pos_embd = self.weights.r_pos_k(queue);
+        self.add_rows(&mut k, &pos_embd, &pos, workspace, queue_alloc)?; // k:[8, 1026, 3584]; pos_embd: [4900, 3584]; pos: [8, 1026]
+
+        let mut k = k.map_slice_mut().merge(0..2).unwrap(); // K [8208, 3584]
 
         // attn
 
