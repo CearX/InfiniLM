@@ -104,6 +104,44 @@ impl WeightLoader for Weights<'_> {
     ) -> Option<[Self::Memory<'a>; 2]> {
         self.0.post_norm
     }
+    
+    // resampler
+    #[inline]
+    fn r_q<'a>(&'a self, _queue: &'a QueueOf<Self::Hardware>) -> Self::Memory<'a>{
+        self.0.resampler.q
+    }
+    #[inline]
+    fn r_q_ln_wb<'a>(&'a self, _queue: &'a QueueOf<Self::Hardware>) -> [Self::Memory<'a>; 2]{
+        [self.0.resampler.q_ln_w, self.0.resampler.q_ln_b] 
+    }
+    #[inline]
+    fn r_kv_w<'a>(&'a self, _queue: &'a QueueOf<Self::Hardware>) -> Self::Memory<'a>{
+        self.0.resampler.kv_w
+    }
+    #[inline]
+    fn r_kv_ln_wb<'a>(&'a self, _queue: &'a QueueOf<Self::Hardware>) -> [Self::Memory<'a>; 2]{
+        [self.0.resampler.kv_ln_w, self.0.resampler.kv_ln_b]
+    }
+    #[inline]
+    fn r_pos_k<'a>(&'a self, _queue: &'a QueueOf<Self::Hardware>) -> Self::Memory<'a>{
+        self.0.resampler.pos_k
+    }
+    #[inline]
+    fn r_attn_qkv_wb<'a>(&'a self, _queue: &'a QueueOf<Self::Hardware>) -> [Self::Memory<'a>; 2]{
+        [self.0.resampler.attn_qkv_w, self.0.resampler.attn_qkv_b]
+    }
+    #[inline]
+    fn r_attn_o_wb<'a>(&'a self, _queue: &'a QueueOf<Self::Hardware>) -> [Self::Memory<'a>; 2]{
+        [self.0.resampler.attn_o_w, self.0.resampler.attn_o_b]
+    }
+    #[inline]
+    fn r_ln_post_wb<'a>(&'a self, _queue: &'a QueueOf<Self::Hardware>) -> [Self::Memory<'a>; 2]{
+        [self.0.resampler.ln_post_w, self.0.resampler.ln_post_b]
+    }
+    #[inline]
+    fn r_proj<'a>(&'a self, _queue: &'a QueueOf<Self::Hardware>) -> Self::Memory<'a>{
+        self.0.resampler.proj_w
+    }
 }
 
 #[cfg(test)]

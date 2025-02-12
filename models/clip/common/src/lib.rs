@@ -149,4 +149,41 @@ impl ClipMeta {
         assert_eq!(self.dt.group_size(), 1);
         Tensor::new(self.dt, &[row, col]).transpose(&[1, 0])
     }
+
+    // resampler
+    pub fn r_q(&self) -> Tensor<usize> {
+        self.mat(3584, 64)
+    }
+
+    pub fn r_norm(&self) -> Tensor<usize> {
+        Tensor::new(self.dt, &[3584])
+    }
+
+    pub fn r_kv_w(&self) -> Tensor<usize> {
+        Tensor::new(self.dt, &[self.d, 3584])
+    }
+
+    pub fn r_pos_k(&self) -> Tensor<usize> {
+        self.mat(3584, 4900)
+    }
+
+    pub fn r_attn_qkv_w(&self) -> Tensor<usize> {
+        Tensor::new(self.dt, &[3584, 10752])
+    }
+    
+    pub fn r_attn_qkv_b(&self) -> Tensor<usize> {
+        self.mat(3584, 3)
+    }
+
+    pub fn r_attn_o_w(&self) -> Tensor<usize> {
+        Tensor::new(self.dt, &[3584, 3584])
+    }
+
+    pub fn r_attn_o_b(&self) -> Tensor<usize> {
+        Tensor::new(self.dt, &[3584])
+    }
+    
+    pub fn r_proj_w(&self) -> Tensor<usize> {
+        Tensor::new(self.dt, &[3584, 3584])
+    }
 }

@@ -10,6 +10,7 @@ pub struct Storage<T> {
     pub pre_norm: Option<[T; 2]>,
     pub post_norm: Option<[T; 2]>,
     pub blocks: Box<[BlkStorage<T>]>,
+    pub resampler: Resampler<T>,
 }
 
 #[derive(Clone, Copy)]
@@ -27,6 +28,24 @@ pub struct BlkStorage<T> {
     pub ffn_up_b: T,
     pub ffn_down_w: T,
     pub ffn_down_b: T,
+}
+
+#[derive(Clone, Copy)]
+pub struct Resampler<T> {
+    pub q: T,
+    pub q_ln_w: T,
+    pub q_ln_b: T,
+    pub kv_w: T,
+    pub kv_ln_w: T,
+    pub kv_ln_b: T,
+    pub pos_k: T,
+    pub attn_qkv_w: T,
+    pub attn_qkv_b: T,
+    pub attn_o_w: T,
+    pub attn_o_b: T,
+    pub ln_post_w: T,
+    pub ln_post_b: T,
+    pub proj_w: T,
 }
 
 impl<'a> Storage<&'a [u8]> {
@@ -81,7 +100,22 @@ impl<'a> Storage<&'a [u8]> {
                 ffn_down_b:  tensor![gguf => format!("v.blk.{i}.ffn_down.bias"  )].data,
             })
             .collect();
-
+        let resampler = Resampler{
+            q: (&gguf.tensors["resampler.query"]).data,
+            q_ln_w: (&gguf.tensors["resampler.ln_q.weight"]).data,
+            q_ln_b: (&gguf.tensors["resampler.ln_q.bias"]).data,
+            kv_w: (&gguf.tensors["resampler.kv.weight"]).data,
+            kv_ln_w: (&gguf.tensors["resampler.ln_kv.weight"]).data,
+            kv_ln_b: (&gguf.tensors["resampler.ln_kv.bias"]).data,
+            pos_k: (&gguf.tensors["resampler.pos_embed_k"]).data,
+            attn_qkv_w: (&gguf.tensors["resampler.attn_qkv.weight"]).data,
+            attn_qkv_b: (&gguf.tensors["resampler.attn_qkv.bias"]).data,
+            attn_o_w: (&gguf.tensors["resampler.attn.out.weight"]).data,
+            attn_o_b: (&gguf.tensors["resampler.attn.out.bias"]).data,
+            ln_post_w: (&gguf.tensors["resampler.ln_post.weight"]).data,
+            ln_post_b: (&gguf.tensors["resampler.ln_post.bias"]).data,
+            proj_w: (&gguf.tensors["resampler.proj.weight"]).data,
+        };
         Self {
             meta,
             patch_embd_w: tensor![gguf => "v.patch_embd.weight"].data,
@@ -96,6 +130,7 @@ impl<'a> Storage<&'a [u8]> {
                 .get("v.post_ln.weight")
                 .map(|w| [w.data, tensor![gguf => "v.post_ln.bias"].data]),
             blocks,
+            resampler,
         }
     }
 }
@@ -118,4 +153,6 @@ fn test() {
     let gguf = GGufModel::read(model.iter().map(|s| &**s));
     let storage = Storage::from_gguf(&gguf);
     println!("{:#?}", storage.meta);
+    // resampler
+    println!("n_patch: {:?}, n_mmproj_embd: {:?}", storage.meta.n_patch(), storage.meta.n_mmproj_embd());
 }

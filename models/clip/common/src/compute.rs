@@ -62,6 +62,17 @@ pub trait WeightLoader {
     fn pre_norm<'a>(&'a self, queue: &'a QueueOf<Self::Hardware>) -> Option<[Self::Memory<'a>; 2]>;
     fn post_norm<'a>(&'a self, queue: &'a QueueOf<Self::Hardware>)
         -> Option<[Self::Memory<'a>; 2]>;
+
+    // resampler
+    fn r_q<'a>(&'a self, queue: &'a QueueOf<Self::Hardware>) -> Self::Memory<'a>;
+    fn r_q_ln_wb<'a>(&'a self, queue: &'a QueueOf<Self::Hardware>) -> [Self::Memory<'a>; 2];
+    fn r_kv_w<'a>(&'a self, queue: &'a QueueOf<Self::Hardware>) -> Self::Memory<'a>;
+    fn r_kv_ln_wb<'a>(&'a self, queue: &'a QueueOf<Self::Hardware>) -> [Self::Memory<'a>; 2];
+    fn r_pos_k<'a>(&'a self, queue: &'a QueueOf<Self::Hardware>) -> Self::Memory<'a>;
+    fn r_attn_qkv_wb<'a>(&'a self, queue: &'a QueueOf<Self::Hardware>) -> [Self::Memory<'a>; 2];
+    fn r_attn_o_wb<'a>(&'a self, queue: &'a QueueOf<Self::Hardware>) -> [Self::Memory<'a>; 2];
+    fn r_ln_post_wb<'a>(&'a self, queue: &'a QueueOf<Self::Hardware>) -> [Self::Memory<'a>; 2];
+    fn r_proj<'a>(&'a self, queue: &'a QueueOf<Self::Hardware>) -> Self::Memory<'a>;
 }
 
 pub struct ClipWorker<Ops: Operators, W> {
@@ -249,10 +260,127 @@ where
             let inplace = unsafe { x.map_slice_static() };
             self.layer_norm(&mut x, &inplace, wb, workspace, queue_alloc)?
         }
-
+        // println!("x.ln_f().shape(): {:?}", &x.shape()); // 1 * 350 x 560: [1000, 1152]; 4 * 350 x 560: [4000, 1152]
         if self.debug {
             println!("encode {n} x {h} x {w} image in {:?}", time.elapsed())
         }
+
+       // Resampler: 
+            // image_embd = [1000, 1152] -> [64, 3584], [4000, 3584] -> [256, 3584]
+        
+        // config
+        // batch = 4; np = 4000;
+        let query = self.meta.n_patch(); // 64
+        let hidden_size = self.meta.n_mmproj_embd(); // 3584
+        let head_dim = 128;
+        let num_heads = hidden_size / head_dim; // 28
+
+        // q
+        let q = Tensor::new(x.dt(), &[query, hidden_size]);
+        let (buf, workspace) = workspace.split_at_mut(*q.get());
+        let mut q = q.map(|_| buf);
+
+        let r_q = self.weights.r_q(queue); // [64, 3584];
+
+        // q_ln
+        let inplace = unsafe { r_q.map_slice_static()};
+        let wb = self.weights.r_q_ln_wb(queue);
+        self.layer_norm(&mut q, &inplace, wb, workspace, queue_alloc)?; //  [64, 3584]
+
+        // q_boardcast
+        let q_batch = Tensor::new(x.dt(), &[batch, query, hidden_size]);
+        let (buf, workspace) = workspace.split_at_mut(*q_batch.get());
+        let mut q_batch = q_batch.map(|_| buf);
+
+        let q = q.tile(0, &[1, query]); // [1, 64, 3584]; strides: [458752, 7168, 2]
+        let q = q.broadcast(0, batch); // [4, 64, 3584]; strides: [0, 7168, 2]
+        self.rearrange(&mut q_batch, &q, workspace, queue_alloc)?;
+
+        let mut q = q_batch.map_slice_mut().merge(0..2).unwrap(); // [4*64, 3584] 
+
+        // v = x * weight.kv
+        let v = Tensor::new(x.dt(), &[np, hidden_size]); // [4000, 3584]; 
+        let (buf, workspace) = workspace.split_at_mut(*v.get());
+        let mut v = v.map(|_| buf);
+
+        let r_kv_w = self.weights.r_kv_w(queue);// [1152, 3584]
+        self.mat_mul(&mut v, &x, (r_kv_w, None), workspace, queue_alloc)?; // [4000, 3584] = [4000, 1152] * [1152, 3584]
+
+        // v_ln
+        let inplace = unsafe { v.map_slice_static()};
+        let wb = self.weights.r_kv_ln_wb(queue);
+        self.layer_norm(&mut v, &inplace, wb, workspace, queue_alloc)?;
+
+        // k = v + pos
+        let k = Tensor::new(v.dt(), &[np, hidden_size]);
+        let (buf, workspace) = workspace.split_at_mut(*k.get());
+        let mut k = k.map(|_| buf);
+
+        let pos = self.weights.r_pos_k(queue); // [4900, 3584]
+        let pos = pos.slice(0, 0, 1, np); // [4000, 3584], 取前4000个pos; 
+        self.add(&mut k, &v, &pos, workspace, queue_alloc)?;
+
+        // attn
+
+        // Q, K, V = weight.qkv.split()
+        let [r_qkv_w, r_qkv_b] = self.weights.r_attn_qkv_wb(queue); 
+        
+        let r_qkv_w=r_qkv_w.map_slice();
+        let r_qkv_b = r_qkv_b.map_slice();
+        split!(r_qkv_w=> q_w, k_w, v_w; [hidden_size, hidden_size, hidden_size] @ 1); // [3584, 10752] -> [3584, 3584]*3
+        split!(r_qkv_b => q_b, k_b, v_b; [1, 1, 1] @ 0);
+
+        // q = q*Q, k = k*K, v = v*V
+        let inplace_q = unsafe { q.map_slice_static()};
+        let inplace_k = unsafe { k.map_slice_static()};
+        let inplace_v = unsafe { v.map_slice_static()};
+        self.mat_mul(&mut q, &inplace_q, (q_w, Some(q_b)), workspace, queue_alloc)?; // [256, 3584]
+        self.mat_mul(&mut k, &inplace_k, (k_w, Some(k_b)), workspace, queue_alloc)?; // [4000, 3584]
+        self.mat_mul(&mut v, &inplace_v, (v_w, Some(v_b)), workspace, queue_alloc)?; // [4000, 3584]
+
+        // tile
+        let mut q = q.tile(1, &[num_heads, head_dim]); // [256, 28, 128]
+        let k = k.tile(1, &[num_heads, head_dim]); // [4000, 28, 128]
+        let v = v.tile(1, &[num_heads, head_dim]); // [4000, 28, 128]
+
+        // attn(qkv)
+        let q_batch_split = vec![batch; query];
+        {
+            let q = q.map_slice_mut().transpose(&[1, 0]); // [28, 256, 128]
+            let k = k.map_slice().transpose(&[1, 0]); //  [28, 4000, 128]
+            let v = v.map_slice().transpose(&[1, 0]); // [28, 4000, 128]
+            let q = q.split(1, &q_batch_split); // [64, 64, 64, 64]
+            let k = k.split(1, &batch_split); 
+            let v = v.split(1, &batch_split);
+            
+            for (mut q, k, v) in izip!(q, k, v) {
+                let mut o = unsafe { q.map_slice_static_mut() };
+                self.attn(&mut q, &k, &v, &mut o, workspace, queue_alloc)?
+            }
+        }
+        let o = q.map_slice().merge(1..3).unwrap(); // [64, 3584]; [64*4, 3584]
+
+        // attn_o
+        let [w, b] = self.weights.r_attn_o_wb(queue); // [3584, 3584]; [3584]
+
+        let output = Tensor::new(x.dt(), &[batch * query, hidden_size]); // [64*4, 3584]
+        let (buf, workspace) = workspace.split_at_mut(*output.get());
+        let mut output = output.map(|_| buf);
+
+        let b = b.tile(0, &[1, hidden_size]); // w = [3584, 3584]; b = [1, 3584]
+        self.mat_mul(&mut output, &o, (w, Some(b)), workspace, queue_alloc)?; // output = [64, 3584]; [256, 3584]
+
+        // ln_norm
+        let inplace = unsafe { output.map_slice_static()};
+        let wb = self.weights.r_ln_post_wb(queue);
+        self.layer_norm(&mut output, &inplace, wb, workspace, queue_alloc)?;
+
+        // project
+        let inplace = unsafe { output.map_slice_static()};
+        let w = self.weights.r_proj_w(queue);
+        self.mat_mul(&mut output, &inplace, (w, None), workspace, queue_alloc)?;
+
+        println!("resampler_output.shape(): {:?}", &output.shape()); // [64, 3584]; [256, 2584]
 
         Ok(())
     }
@@ -517,6 +645,17 @@ struct WeightDecorator<W> {
     ffn_down_w: Tensor<usize>,
     ffn_down_b: Tensor<usize>,
 
+    // resampler
+    r_q: Tensor<usize>,
+    r_norm: Tensor<usize>,
+    r_kv_w: Tensor<usize>,
+    r_pos_k: Tensor<usize>,
+    r_attn_qkv_w: Tensor<usize>,
+    r_attn_qkv_b: Tensor<usize>,
+    r_attn_o_w: Tensor<usize>,
+    r_attn_o_b: Tensor<usize>,
+    r_proj_w: Tensor<usize>,
+
     weights: W,
 }
 
@@ -536,6 +675,17 @@ impl ClipMeta {
             ffn_up_b: self.ffn_up_b(),
             ffn_down_w: self.ffn_down_w(),
             ffn_down_b: self.ffn_down_b(),
+
+            // resampler
+            r_q: self.r_q(),
+            r_norm: self.r_norm(),
+            r_kv_w: self.r_kv_w(),
+            r_pos_k: self.r_pos_k(),
+            r_attn_qkv_w: self.r_attn_qkv_w(),
+            r_attn_qkv_b: self.r_attn_qkv_b(),
+            r_attn_o_w: self.r_attn_o_w(),
+            r_attn_o_b: self.r_attn_o_b(),
+            r_proj_w: self.r_proj_w(),
 
             weights,
         }
@@ -634,5 +784,74 @@ impl<W: WeightLoader> WeightDecorator<W> {
             self.ffn_down_w.clone().map(|_| w),
             self.ffn_down_b.clone().map(|_| b),
         ]
+    }
+
+    #[inline]
+    pub fn r_q<'a>(&'a self, queue: &'a QueueOf<W::Hardware>) -> Tensor<W::Memory<'a>> {
+        let r_q = self.weights.r_q(queue);
+        self.r_q.clone().map(|_| r_q)
+    }
+
+    #[inline]
+    pub fn r_q_ln_wb<'a>(&'a self, queue: &'a QueueOf<W::Hardware>) -> [Tensor<W::Memory<'a>>; 2] {
+        let [w, b] = self.weights.r_q_ln_wb(queue);
+        [
+            self.r_norm.clone().map(|_| w),
+            self.r_norm.clone().map(|_| b),
+        ]
+    }
+
+    #[inline]
+    pub fn r_kv_w<'a>(&'a self, queue: &'a QueueOf<W::Hardware>) -> Tensor<W::Memory<'a>> {
+        let r_kv_w = self.weights.r_kv_w(queue);
+        self.r_kv_w.clone().map(|_| r_kv_w)
+    }
+
+    #[inline]
+    pub fn r_kv_ln_wb<'a>(&'a self, queue: &'a QueueOf<W::Hardware>) -> [Tensor<W::Memory<'a>>; 2] {
+        let [w, b] = self.weights.r_kv_ln_wb(queue);
+        [
+            self.r_norm.clone().map(|_| w),
+            self.r_norm.clone().map(|_| b),
+        ]
+    }
+
+    #[inline]
+    pub fn r_pos_k<'a>(&'a self, queue: &'a QueueOf<W::Hardware>) -> Tensor<W::Memory<'a>> {
+        let r_pos_k = self.weights.r_pos_k(queue);
+        self.r_pos_k.clone().map(|_| r_pos_k)
+    }
+
+    #[inline]
+    pub fn r_attn_qkv_wb<'a>(&'a self, queue: &'a QueueOf<W::Hardware>) -> [Tensor<W::Memory<'a>>; 2] {
+        let [w, b] = self.weights.r_attn_qkv_wb(queue);
+        [
+            self.r_attn_qkv_w.clone().map(|_| w),
+            self.r_attn_qkv_b.clone().map(|_| b),
+        ]
+    }
+
+    #[inline]
+    pub fn r_attn_o_wb<'a>(&'a self, queue: &'a QueueOf<W::Hardware>) -> [Tensor<W::Memory<'a>>; 2] {
+        let [w, b] = self.weights.r_attn_o_wb(queue);
+        [
+            self.r_attn_o_w.clone().map(|_| w),
+            self.r_attn_o_b.clone().map(|_| b),
+        ]
+    }
+
+    #[inline]
+    pub fn r_ln_post_wb<'a>(&'a self, queue: &'a QueueOf<W::Hardware>) -> [Tensor<W::Memory<'a>>; 2] {
+        let [w, b] = self.weights.r_ln_post_wb(queue);
+        [
+            self.r_norm.clone().map(|_| w),
+            self.r_norm.clone().map(|_| b),
+        ]
+    }
+
+    #[inline]
+    pub fn r_proj_w<'a>(&'a self, queue: &'a QueueOf<W::Hardware>) -> Tensor<W::Memory<'a>> {
+        let r_proj_w = self.weights.r_proj(queue);
+        self.r_proj_w.clone().map(|_| r_proj_w)
     }
 }
