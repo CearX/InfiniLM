@@ -1,4 +1,4 @@
-﻿use crate::{ClipMeta, ProjectorType};
+use crate::{ClipMeta, ProjectorType};
 use gguf::{meta, tensor, GGufMetaMapExt, GGufModel};
 
 #[derive(Clone)]
@@ -100,7 +100,7 @@ impl<'a> Storage<&'a [u8]> {
                 ffn_down_b:  tensor![gguf => format!("v.blk.{i}.ffn_down.bias"  )].data,
             })
             .collect();
-        let resampler = Resampler{
+        let resampler = Resampler {
             q: (&gguf.tensors["resampler.query"]).data,
             q_ln_w: (&gguf.tensors["resampler.ln_q.weight"]).data,
             q_ln_b: (&gguf.tensors["resampler.ln_q.bias"]).data,
@@ -154,5 +154,9 @@ fn test() {
     let storage = Storage::from_gguf(&gguf);
     println!("{:#?}", storage.meta);
     // resampler
-    println!("n_patch: {:?}, n_mmproj_embd: {:?}", storage.meta.n_patch(), storage.meta.n_mmproj_embd());
+    println!(
+        "n_patch: {:?}, n_mmproj_embd: {:?}",
+        storage.meta.n_patch(),
+        storage.meta.n_mmproj_embd()
+    );
 }
