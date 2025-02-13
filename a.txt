@@ -1,0 +1,42 @@
+
+running 1 test
+ClipMeta {
+    dt: DigitLayout {
+        code: 3221553162,
+        group: 1,
+        size: 2,
+    },
+    dt_norm: DigitLayout {
+        code: 3221749783,
+        group: 1,
+        size: 4,
+    },
+    d_patch: 14,
+    d_image: 448,
+    nblk: 27,
+    nh: 16,
+    nkvh: 16,
+    d: 1152,
+    dh: 72,
+    di: 4304,
+    image_mean: [
+        0.5,
+        0.5,
+        0.5,
+    ],
+    image_std: [
+        0.5,
+        0.5,
+        0.5,
+    ],
+    epsilon: 1e-6,
+    projector: Resampler(
+        Meta {
+            d: 3584,
+            dq: 64,
+            dh: 128,
+        },
+    ),
+}
+load image 839.974µs
+slice image 8.832944ms

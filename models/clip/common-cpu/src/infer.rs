@@ -102,7 +102,7 @@ fn pos_resampler(n: usize, [w, h]: [usize; 2], d_patch: usize) -> Tensor<Blob> {
     let pos_w = w / d_patch;
     let pos_h = h / d_patch;
 
-    let mut ans = Tensor::new(ty::F32, &[1, pos_w * pos_h])
+    let mut ans = Tensor::new(ty::F32, &[1, pos_w * pos_h, d])
         .broadcast(0, n)
         .map(Blob::new);
     let (&mut [], data, &mut []) = (unsafe { ans.get_mut().align_to_mut::<f32>() }) else {
