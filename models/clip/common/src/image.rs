@@ -1,4 +1,4 @@
-﻿use common::{borrow, own, Contiguous};
+use common::{borrow, own, Contiguous};
 use def::*;
 use gguf::ggml_quants::{
     digit_layout::{types as ty, DigitLayout},
@@ -374,4 +374,43 @@ fn test() {
             println!("patch[{i}, {j}] {w}x{h}: {:?}/{:?}", t.shape(), t.strides());
         }
     }
+}
+
+pub fn qwen2vl_image_preprocess(
+    image: &Image<Vec<u8>>,
+    image_mean: [f32; 3],
+    image_std: [f32; 3],
+) -> Image<Blob> {
+    let time = std::time::Instant::now();
+    // smart_resize
+    let [w, h] = image.shape();
+    let patch_size = 14;
+    let factor = patch_size * 2;
+    let w_pad = (w + factor - 1) / factor * factor;
+    let h_pad = (h + factor - 1) / factor * factor;
+    println!("w: {}, h: {}", w, h);
+    println!("w_pad: {}, h_pad: {}", w_pad, h_pad);
+    let image = image.bicubic_resize([w_pad, h_pad]);
+    // normalize
+    let image = Image(normalize(&image.0, Frgb48, image_mean, image_std));
+    println!("image preprocess {:?}", time.elapsed());
+    image
+}
+
+#[test]
+fn test_qwen2vl_image_preprocess() {
+    use std::time::Instant;
+
+    let Some(picture) = test_utils::image() else {
+        return;
+    };
+
+    let time = Instant::now();
+    let image = Image::load(picture);
+    println!("load image {:?}", time.elapsed());
+
+    let image_mean = [0.48145466f32, 0.4578275f32, 0.40821073f32];
+    let image_std = [0.26862954f32, 0.26130258f32, 0.27577711f32];
+
+    let image_ = qwen2vl_image_preprocess(&image, image_mean, image_std);
 }

@@ -1,5 +1,5 @@
-﻿use crate::{
-    projector::{ProjectorMeta, ProjectorStroage},
+use crate::{
+    projector::{self, ProjectorMeta, ProjectorStroage},
     ClipMeta,
 };
 use gguf::{meta, tensor, GGufMetaMapExt, GGufModel};
@@ -8,7 +8,8 @@ use gguf::{meta, tensor, GGufMetaMapExt, GGufModel};
 pub struct Storage<T> {
     pub meta: ClipMeta,
     pub patch_embd_w: T,
-    pub patch_embd_b: T,
+    pub patch_embd_w1: Option<T>, // Qwen2vl_conv
+    pub patch_embd_b: Option<T>,  // Qwen2vl has not bias
     pub pos_embd: T,
     pub pre_norm: Option<[T; 2]>,
     pub post_norm: Option<[T; 2]>,
@@ -37,13 +38,15 @@ impl<'a> Storage<&'a [u8]> {
     pub fn from_gguf(gguf: &GGufModel<'a>) -> Self {
         let pos_embd = &gguf.tensors["v.position_embd.weight"];
         let ln1_0 = &gguf.tensors["v.blk.0.ln1.weight"];
+        let patch_embd_w = &gguf.tensors["v.patch_embd.weight"];
 
         let d = meta![gguf => (usize) "clip.vision.embedding_length"];
         let nh = meta![gguf => (usize) "clip.vision.attention.head_count"];
 
         #[rustfmt::skip]
         let meta = ClipMeta {
-            dt     : pos_embd.ty,
+            // dt     : pos_embd.ty,
+            dt     : patch_embd_w.ty,
             dt_norm: ln1_0.ty,
             d_patch: meta![gguf => (usize) "clip.vision.patch_size"],
             d_image: meta![gguf => (usize) "clip.vision.image_size"],
@@ -61,7 +64,7 @@ impl<'a> Storage<&'a [u8]> {
             projector : ProjectorMeta::from_gguf(gguf),
         };
         #[rustfmt::skip]
-        let blocks = (0..=meta.nblk)
+        let blocks = (0..meta.nblk)
             .map(|i| BlkStorage {
                 attn_norm_w: tensor![gguf => format!("v.blk.{i}.ln1.weight"     )].data,
                 attn_norm_b: tensor![gguf => format!("v.blk.{i}.ln1.bias"       )].data,
@@ -82,7 +85,8 @@ impl<'a> Storage<&'a [u8]> {
         Self {
             meta,
             patch_embd_w: tensor![gguf => "v.patch_embd.weight"].data,
-            patch_embd_b: tensor![gguf => "v.patch_embd.bias"  ].data,
+            patch_embd_w1: gguf.tensors.get("v.patch_embd.weight.1").map(|w| w.data),
+            patch_embd_b: gguf.tensors.get("v.patch_embd.bias").map(|w| w.data),
             pos_embd: pos_embd.data,
             pre_norm: gguf
                 .tensors

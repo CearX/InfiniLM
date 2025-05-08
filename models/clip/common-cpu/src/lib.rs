@@ -81,7 +81,11 @@ impl WeightLoader for Weights<'_> {
 
     #[inline]
     fn patch_embd<'a>(&'a self, _queue: &'a QueueOf<Self::Hardware>) -> [Self::Memory<'a>; 2] {
-        [self.0.patch_embd_w, self.0.patch_embd_b]
+        match &self.0.projector {
+            ProjectorStroage::Resampler(_) => [self.0.patch_embd_w, self.0.patch_embd_b.unwrap()],
+            ProjectorStroage::Merger(_) => [self.0.patch_embd_w, self.0.patch_embd_w1.unwrap()],
+            _ => todo!("Unsupported projector type"),
+        }
     }
 
     #[inline]
@@ -108,24 +112,28 @@ impl WeightLoader for Weights<'_> {
     fn resampler_wkv<'a>(&'a self, _queue: &'a QueueOf<Self::Hardware>) -> Self::Memory<'a> {
         match &self.0.projector {
             ProjectorStroage::Resampler(storage) => storage.wkv,
+            _ => panic!("incorrect projector type"),
         }
     }
 
     fn resampler_q<'a>(&'a self, _queue: &'a QueueOf<Self::Hardware>) -> Self::Memory<'a> {
         match &self.0.projector {
             ProjectorStroage::Resampler(storage) => storage.q,
+            _ => panic!("incorrect projector type"),
         }
     }
 
     fn resampler_ln_q<'a>(&'a self, _queue: &'a QueueOf<Self::Hardware>) -> [Self::Memory<'a>; 2] {
         match &self.0.projector {
             ProjectorStroage::Resampler(storage) => storage.ln_q,
+            _ => panic!("incorrect projector type"),
         }
     }
 
     fn resampler_ln_kv<'a>(&'a self, _queue: &'a QueueOf<Self::Hardware>) -> [Self::Memory<'a>; 2] {
         match &self.0.projector {
             ProjectorStroage::Resampler(storage) => storage.ln_kv,
+            _ => panic!("incorrect projector type"),
         }
     }
 
@@ -135,6 +143,7 @@ impl WeightLoader for Weights<'_> {
     ) -> [Self::Memory<'a>; 2] {
         match &self.0.projector {
             ProjectorStroage::Resampler(storage) => storage.attn_q,
+            _ => panic!("incorrect projector type"),
         }
     }
 
@@ -144,6 +153,7 @@ impl WeightLoader for Weights<'_> {
     ) -> [Self::Memory<'a>; 2] {
         match &self.0.projector {
             ProjectorStroage::Resampler(storage) => storage.attn_k,
+            _ => panic!("incorrect projector type"),
         }
     }
 
@@ -153,6 +163,7 @@ impl WeightLoader for Weights<'_> {
     ) -> [Self::Memory<'a>; 2] {
         match &self.0.projector {
             ProjectorStroage::Resampler(storage) => storage.attn_v,
+            _ => panic!("incorrect projector type"),
         }
     }
 
@@ -162,6 +173,7 @@ impl WeightLoader for Weights<'_> {
     ) -> [Self::Memory<'a>; 2] {
         match &self.0.projector {
             ProjectorStroage::Resampler(storage) => storage.attn_o,
+            _ => panic!("incorrect projector type"),
         }
     }
 
@@ -171,12 +183,28 @@ impl WeightLoader for Weights<'_> {
     ) -> [Self::Memory<'a>; 2] {
         match &self.0.projector {
             ProjectorStroage::Resampler(storage) => storage.ln_post,
+            _ => panic!("incorrect projector type"),
         }
     }
 
     fn resampler_proj<'a>(&'a self, _queue: &'a QueueOf<Self::Hardware>) -> Self::Memory<'a> {
         match &self.0.projector {
             ProjectorStroage::Resampler(storage) => storage.proj,
+            _ => panic!("incorrect projector type"),
+        }
+    }
+
+    fn merger_mm_0<'a>(&'a self, _queue: &'a QueueOf<Self::Hardware>) -> [Self::Memory<'a>; 2] {
+        match &self.0.projector {
+            ProjectorStroage::Merger(storage) => storage.mm_0,
+            _ => panic!("incorrect projector type"),
+        }
+    }
+
+    fn merger_mm_2<'a>(&'a self, _queue: &'a QueueOf<Self::Hardware>) -> [Self::Memory<'a>; 2] {
+        match &self.0.projector {
+            ProjectorStroage::Merger(storage) => storage.mm_2,
+            _ => panic!("incorrect projector type"),
         }
     }
 }
