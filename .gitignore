@@ -9,5 +9,4 @@
 *.gguf
 *.jpg
 !/docs/*.jpg
-/a.txt
-/b.txt
+/*.txt

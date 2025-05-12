@@ -161,11 +161,10 @@ fn test_infer_qwen2vl() {
     );
 }
 
-// llama.cpp pos
-fn pos_qwen2vl([w, h]: [usize; 2], d_patch: usize) -> Tensor<Blob> {
-    let w = w / d_patch;
+fn pos_qwen2vl([h, w]: [usize; 2], d_patch: usize) -> Tensor<Blob> {
     let h = h / d_patch;
-    let mut ans = Tensor::new(ty::U32, &[1, w * h * 4]).map(Blob::new);
+    let w = w / d_patch;
+    let mut ans = Tensor::new(ty::U32, &[1, h * w * 2]).map(Blob::new);
     let (&mut [], data, &mut []) = (unsafe { ans.get_mut().align_to_mut::<u32>() }) else {
         panic!()
     };
@@ -175,10 +174,8 @@ fn pos_qwen2vl([w, h]: [usize; 2], d_patch: usize) -> Tensor<Blob> {
         for x in (0..w).step_by(2) {
             for dy in 0..2 {
                 for dx in 0..2 {
-                    data[ptr] = (y + dy) as u32;
-                    data[w * h + ptr] = (x + dx) as u32;
-                    data[w * h * 2 + ptr] = (y + dy) as u32;
-                    data[w * h * 3 + ptr] = (x + dx) as u32;
+                    data[ptr * 2] = (y + dy) as u32;
+                    data[ptr * 2 + 1] = (x + dx) as u32;
                     ptr += 1;
                 }
             }
