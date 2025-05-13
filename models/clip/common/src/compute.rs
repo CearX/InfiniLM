@@ -269,14 +269,11 @@ where
         //     panic!();
         // }
 
-        // test_mrope
-        todo!();
-
         let &[batch, size, _] = embd.shape() else {
             unreachable!()
         };
 
-        {
+        if let ProjectorMeta::Resampler(_) = &self.meta.projector {
             let pos_embd = self.weights.pos_embd(queue);
             let pos = pos.broadcast(0, batch);
             self.add_rows(&mut embd, &pos_embd, &pos, workspace, queue_alloc)?
@@ -298,7 +295,7 @@ where
             self.layer_norm(&mut x, &inplace, wb, workspace, queue_alloc)?
         }
 
-        for iblk in 0..nblk {
+        for iblk in 0..1 {
             {
                 let wb = self.weights.attn_norm(iblk, queue);
                 self.layer_norm(&mut x1, &x, wb, workspace, queue_alloc)?;
@@ -319,7 +316,11 @@ where
                     let k = k.map_slice().transpose(&[1, 0]);
 
                     // rope!
-
+                    {
+                        // println!("q.shape{:?}", q.shape()); // q.shape[16, 816, 80]
+                        // Ops::debug(&q);
+                        // panic!();
+                    }
                     let v = v.map_slice().transpose(&[1, 0]);
 
                     let mut o = unsafe { q.map_slice_static_mut() };
@@ -471,26 +472,41 @@ where
                 let &Meta { d, d_img } = meta;
                 let weights = &self.weights.weights;
 
+                // {
+                //     println!("x_after_ln.shape{:?}", x.shape());
+                //     Ops::debug(&x);
+                //     panic!();
+                // }
+
                 // 每4个图像特征合为一个, x: [np, d] -> [np/4, 4*d]
                 let x = x.tile(0, &[np / 4, 4]);
                 let mut x = x.merge(1..3).unwrap();
 
+                // [np/4, di] <- [np/4, 4*d] * [4*d, di]
+                let up = Tensor::new(x.dt(), &[np / 4, di]);
+                let (buf, workspace) = workspace.split_at_mut(*up.get());
+                let mut up = up.map(|_| buf);
                 let [w, b] = weights.merger_mm_0(queue);
-                let w = Tensor::new(dt, &[4 * d, 4 * d]).map(|_| w);
-                let b = Tensor::new(dt, &[4 * d]).map(|_| b);
-                let inplace = unsafe { x.map_slice_static() };
-                self.mat_mul(&mut x, &inplace, (w, Some(b)), workspace, queue_alloc)?; // [np/4, 4*d] -> [np/4, 4*d]
+                let w = Tensor::new(dt, &[di, 4 * d]).map(|_| w).transpose(&[1, 0]);
+                let b = Tensor::new(dt, &[di, 1]).map(|_| b).transpose(&[1, 0]);
+                self.mat_mul(&mut up, &x, (w, Some(b)), workspace, queue_alloc)?;
 
-                self.gelu(&mut x, workspace, queue_alloc)?;
+                self.gelu(&mut up, workspace, queue_alloc)?;
 
+                // [np/4, d_img] <- [np/4, di] * [di, d_img]
                 let img_embd = Tensor::new(dt, &[np / 4, d_img]);
                 let (buf, workspace) = workspace.split_at_mut(*img_embd.get());
                 let mut img_embd = img_embd.map(|_| buf);
                 let [w, b] = weights.merger_mm_2(queue);
-                let w = Tensor::new(dt, &[4 * d, d_img]).map(|_| w);
-                let b = Tensor::new(dt, &[d_img]).map(|_| b);
-                self.mat_mul(&mut img_embd, &x, (w, Some(b)), workspace, queue_alloc)?;
-                // [np/4, 4*d] -> [np/4, d_img]
+                let w = Tensor::new(dt, &[d_img, di]).map(|_| w).transpose(&[1, 0]);
+                let b = Tensor::new(dt, &[d_img, 1]).map(|_| b).transpose(&[1, 0]);
+                self.mat_mul(&mut img_embd, &up, (w, Some(b)), workspace, queue_alloc)?;
+
+                // {
+                //     println!("img_embd.shape{:?}", img_embd.shape());
+                //     Ops::debug(&img_embd);
+                //     panic!();
+                // }
             }
         }
 
@@ -795,13 +811,13 @@ impl ClipMeta {
                 norm: self.norm(),
 
                 attn_qkv_w: self.attn_qkv_w(),
-                attn_qkv_b: self.attn_qkv_b_qw(),
+                attn_qkv_b: self.attn_qkv_b(),
                 attn_o_w: self.attn_o_w(),
-                attn_o_b: self.attn_o_b_qw(),
+                attn_o_b: self.attn_o_b(),
                 ffn_up_w: self.ffn_up_w(),
-                ffn_up_b: self.ffn_up_b_qw(),
+                ffn_up_b: self.ffn_up_b(),
                 ffn_down_w: self.ffn_down_w(),
-                ffn_down_b: self.ffn_down_b_qw(),
+                ffn_down_b: self.ffn_down_b(),
 
                 weights,
             },

@@ -128,30 +128,4 @@ impl ClipMeta {
         let &Self { d, d_patch, .. } = self;
         Tensor::new(self.dt, &[d, 3, d_patch, d_patch])
     }
-
-    // qwen2vl的weight.dt为f16, 记为dt; bias.dt为f32, norm.dt也为f32, 记为dt_norm
-    pub fn attn_qkv_b_qw(&self) -> Tensor<usize> {
-        let &Self { d, .. } = self;
-        self.mat_qw_b(3 * d, 1)
-    }
-
-    pub fn attn_o_b_qw(&self) -> Tensor<usize> {
-        let &Self { d, .. } = self;
-        self.mat_qw_b(d, 1)
-    }
-
-    pub fn ffn_up_b_qw(&self) -> Tensor<usize> {
-        let &Self { di, .. } = self;
-        self.mat_qw_b(di, 1)
-    }
-
-    pub fn ffn_down_b_qw(&self) -> Tensor<usize> {
-        let &Self { d, .. } = self;
-        self.mat_qw_b(d, 1)
-    }
-
-    fn mat_qw_b(&self, row: usize, col: usize) -> Tensor<usize> {
-        assert_eq!(self.dt.group_size(), 1);
-        Tensor::new(self.dt_norm, &[row, col]).transpose(&[1, 0])
-    }
 }
