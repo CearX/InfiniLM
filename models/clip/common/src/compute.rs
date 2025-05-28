@@ -2,7 +2,13 @@ use crate::projector;
 
 use super::{args::Args, projector::ProjectorMeta, ClipMeta};
 use core::panic;
+use half::f16;
 use itertools::izip;
+use ndrope::pos_ids::pos_2d_qwen2vl_vit;
+use ndrope::{
+    pos_ids, rope_m,
+    sin_cos::{self, sin_cos_default},
+};
 use operators::{
     add::{self, Add},
     add_rows::{self, AddRows},
@@ -313,11 +319,57 @@ where
                 let v = v;
                 {
                     let mut q = q.map_slice_mut().transpose(&[1, 0]);
-                    let k = k.map_slice().transpose(&[1, 0]);
+                    let mut k = k.map_slice().transpose(&[1, 0]);
 
-                    // rope!
-                    {
+                    // mrope!
+                    if let ProjectorMeta::Merger(_) = &self.meta.projector {
                         // println!("q.shape{:?}", q.shape()); // q.shape[16, 816, 80]
+                        // Ops::debug(&q);
+                        // panic!();
+
+                        let dt = q.dt();
+                        let shape = q.shape().to_vec();
+                        let strides = q.strides().to_vec();
+                        let offset = q.offset();
+                        let grid = [24, 34];
+                        let rope_section = None;
+
+                        let &[_, _, h, w] = raw.shape() else {
+                            unreachable!()
+                        };
+                        let (pos, pos_dt, pos_layout) =
+                            ndrope::pos_ids::pos_2d_qwen2vl_vit::<u32>([h, w], 14);
+
+                        // f16模型计算时需要传f32的sin_cos提高精度
+                        let theta = 10000.0;
+                        let (sin, sin_dt, sin_layout, cos, cos_dt, cos_layout) =
+                            sin_cos_default::<f32>(&shape, &grid, rope_section.clone(), theta);
+
+                        let (&mut [], q_, &mut []) = (unsafe { q.get_mut().align_to_mut::<u8>() })
+                        else {
+                            panic!()
+                        };
+
+                        rope_m(
+                            &q_,
+                            dt,
+                            &shape,
+                            &strides,
+                            offset,
+                            &grid,
+                            rope_section,
+                            pos,
+                            pos_dt,
+                            pos_layout,
+                            sin,
+                            sin_dt,
+                            sin_layout,
+                            cos,
+                            cos_dt,
+                            cos_layout,
+                        );
+
+                        // println!("q.shape{:?}", q.shape());
                         // Ops::debug(&q);
                         // panic!();
                     }

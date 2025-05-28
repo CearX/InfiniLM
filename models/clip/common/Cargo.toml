@@ -14,6 +14,8 @@ operators.workspace = true
 itertools.workspace = true
 image = "0.25"
 rayon = "1.10"
+ndrope = { git = "https://github.com/CearX/ndrope.git" }
+half = "2.4"
 
 [dev-dependencies]
 test-utils.workspace = true
