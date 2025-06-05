@@ -1,4 +1,4 @@
-﻿use crate::{Operators, Weights};
+use crate::{Operators, Weights};
 use clip::{ClipArgs, ClipMeta, ClipStorage, ClipWorker, Image, Tensor, D_POS_EMBD};
 use gguf::{
     ggml_quants::{digit_layout::types as ty, f16},
@@ -97,6 +97,101 @@ fn test_infer() {
         img_embd.shape()[1],
         picture.display(),
     );
+}
+
+#[test]
+fn test_infer_qwen2vl() {
+    let Some(Inference { model, .. }) = Inference::load() else {
+        return;
+    };
+    let Some(picture) = test_utils::image() else {
+        return;
+    };
+
+    let gguf = GGufModel::read(model.iter().map(|s| &**s));
+    let storage = ClipStorage::from_gguf(&gguf);
+    let meta = &storage.meta;
+    println!("{meta:#?}");
+
+    let &ClipMeta {
+        dt,
+
+        d_image,
+        d_patch,
+
+        image_mean,
+        image_std,
+        ..
+    } = meta;
+
+    let time = Instant::now();
+    let image = Image::load(&picture);
+    println!("load image {:?}", time.elapsed());
+
+    let whole = clip::qwen2vl_image_preprocess(&image, image_mean, image_std);
+
+    let batch = 1;
+    let mut img_embd = meta.projector.img_embd(meta.dt, batch).map(Blob::new); // 不需要, img_embd = [np, proj_d]
+    let d = img_embd.shape()[2];
+
+    let weights = Weights::new(&storage);
+    let mut worker = Worker::new(&Cpu, meta.clone(), weights);
+
+    {
+        let img_embd = img_embd.map_slice_mut().slice(0, 0, 1, 1);
+        worker
+            .launch(
+                ClipArgs {
+                    img_embd,
+                    raw: whole.to_nchw(),
+                    pos: pos70(whole.shape(), d_patch).map_slice(),
+                    pos_resampler: pos_resampler(d, whole.shape(), d_patch).map_slice(),
+                },
+                &mut [],
+                &ThisThread,
+            )
+            .unwrap();
+    }
+
+    println!(
+        "create {} x {} tokens from {}",
+        img_embd.shape()[0],
+        img_embd.shape()[1],
+        picture.display(),
+    );
+}
+
+fn pos_qwen2vl([h, w]: [usize; 2], d_patch: usize) -> Tensor<Blob> {
+    let h = h / d_patch;
+    let w = w / d_patch;
+    let mut ans = Tensor::new(ty::U32, &[1, h * w * 2]).map(Blob::new);
+    let (&mut [], data, &mut []) = (unsafe { ans.get_mut().align_to_mut::<u32>() }) else {
+        panic!()
+    };
+
+    let mut ptr = 0;
+    for y in (0..h).step_by(2) {
+        for x in (0..w).step_by(2) {
+            for dy in 0..2 {
+                for dx in 0..2 {
+                    data[ptr * 2] = (y + dy) as u32;
+                    data[ptr * 2 + 1] = (x + dx) as u32;
+                    ptr += 1;
+                }
+            }
+        }
+    }
+    ans
+}
+
+#[test]
+fn test_pos_qwen2vl() {
+    let mut ans = pos_qwen2vl([336, 476], 14);
+    let (&mut [], data, &mut []) = (unsafe { ans.get_mut().align_to_mut::<u32>() }) else {
+        panic!()
+    };
+    println!("data_len: {}", data.len());
+    println!("{:?}", data);
 }
 
 fn pos70([w, h]: [usize; 2], d_patch: usize) -> Tensor<Blob> {

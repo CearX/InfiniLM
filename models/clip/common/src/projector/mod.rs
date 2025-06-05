@@ -1,3 +1,4 @@
+pub(crate) mod merger;
 pub(crate) mod resampler;
 
 use gguf::{ggml_quants::digit_layout::DigitLayout, GGufMetaMapExt, GGufModel};
@@ -6,12 +7,14 @@ use tensor::Tensor;
 #[derive(Clone, Debug)]
 pub enum ProjectorMeta {
     Resampler(resampler::Meta),
+    Merger(merger::Meta),
 }
 
 impl ProjectorMeta {
     pub fn from_gguf(gguf: &GGufModel) -> Self {
         match gguf.get_str("clip.projector_type").unwrap() {
             "resampler" => ProjectorMeta::Resampler(resampler::Meta::from_gguf(gguf)),
+            "qwen2vl_merger" => ProjectorMeta::Merger(merger::Meta::from_gguf(gguf)),
             projector => todo!("unsupported projector type: {projector}"),
         }
     }
@@ -19,6 +22,7 @@ impl ProjectorMeta {
     pub fn img_embd(&self, dt: DigitLayout, batch: usize) -> Tensor<usize> {
         match self {
             ProjectorMeta::Resampler(meta) => meta.img_embd(dt, batch),
+            ProjectorMeta::Merger(meta) => meta.img_embd(dt, batch),
         }
     }
 }
@@ -26,12 +30,14 @@ impl ProjectorMeta {
 #[derive(Clone)]
 pub enum ProjectorStroage<T> {
     Resampler(resampler::Storage<T>),
+    Merger(merger::Storage<T>),
 }
 
 impl<'a> ProjectorStroage<&'a [u8]> {
     pub fn from_gguf(gguf: &GGufModel<'a>) -> Self {
         match gguf.get_str("clip.projector_type").unwrap() {
             "resampler" => ProjectorStroage::Resampler(resampler::Storage::from_gguf(gguf)),
+            "qwen2vl_merger" => ProjectorStroage::Merger(merger::Storage::from_gguf(gguf)),
             projector => todo!("unsupported projector type: {projector}"),
         }
     }

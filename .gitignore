@@ -9,3 +9,4 @@
 *.gguf
 *.jpg
 !/docs/*.jpg
+/*.txt

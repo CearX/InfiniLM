@@ -1,4 +1,4 @@
-﻿use operators::Hardware;
+use operators::Hardware;
 use tensor::Tensor;
 
 pub struct Args<'a, H: Hardware> {
@@ -10,4 +10,15 @@ pub struct Args<'a, H: Hardware> {
     pub pos: Tensor<&'a [H::Byte]>,
     /// shape: [h x w, resampler.d]
     pub pos_resampler: Tensor<&'a [H::Byte]>,
+}
+pub struct ArgsQwen2vl<'a, H: Hardware> {
+    /// shape: [n, c, h, w]
+    pub raw: Tensor<&'a [H::Byte]>,
+    /// shape: [h x w]
+    pub pos: Tensor<&'a [H::Byte]>,
+}
+
+pub enum ArgsType<'a, H: Hardware> {
+    Args(Args<'a, H>),
+    ArgsQwen2vl(ArgsQwen2vl<'a, H>),
 }

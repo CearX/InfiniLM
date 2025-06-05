@@ -10,6 +10,7 @@ minijinja = { version = "2.7", default-features = false, features = [
     "loader",
     "builtins",
     "serde",
+    "serde",
 ] }
 serde = { version = "1.0", features = ["derive"] }
 tokeneer = "0.0"

@@ -1,5 +1,14 @@
+use crate::projector;
+
 use super::{args::Args, projector::ProjectorMeta, ClipMeta};
+use core::panic;
+use half::f16;
 use itertools::izip;
+use ndrope::pos_ids::pos_2d_qwen2vl_vit;
+use ndrope::{
+    pos_ids, rope_m,
+    sin_cos::{self, sin_cos_default},
+};
 use operators::{
     add::{self, Add},
     add_rows::{self, AddRows},
@@ -75,6 +84,10 @@ pub trait WeightLoader {
     fn resampler_ln_post<'a>(&'a self, queue: &'a QueueOf<Self::Hardware>)
         -> [Self::Memory<'a>; 2];
     fn resampler_proj<'a>(&'a self, queue: &'a QueueOf<Self::Hardware>) -> Self::Memory<'a>;
+
+    // qwen2-vl merger
+    fn merger_mm_0<'a>(&'a self, queue: &'a QueueOf<Self::Hardware>) -> [Self::Memory<'a>; 2];
+    fn merger_mm_2<'a>(&'a self, queue: &'a QueueOf<Self::Hardware>) -> [Self::Memory<'a>; 2];
 }
 
 pub struct ClipWorker<Ops: Operators, W> {
@@ -148,6 +161,7 @@ where
         QA: QueueAlloc<Hardware = Ops::Hardware>,
     {
         let time = Instant::now();
+        // qwen2vl args
         let Args {
             img_embd: proj_q,
             raw,
@@ -162,33 +176,110 @@ where
             nkvh,
             dh,
             di,
+            d,
             ..
         } = self.meta;
 
         let queue = queue_alloc.queue();
 
-        let [k, b] = self.weights.patch_embd(queue);
         let &[n, _, h, w] = raw.shape() else {
             unreachable!()
         };
-        let &[m, _, hk, wk] = k.shape() else {
-            unreachable!()
+
+        // {
+        //     println!("raw shape: {:?}", raw.shape());
+        //     Ops::debug(&raw);
+        //     panic!();
+        // }
+
+        let mut embd = match &self.meta.projector {
+            ProjectorMeta::Resampler(_) => {
+                let [k, b] = self.weights.patch_embd(queue, &self.meta.projector);
+
+                let &[m, _, hk, wk] = k.shape() else {
+                    unreachable!()
+                };
+
+                let mut embd =
+                    Tensor::new(dt, &[n, m, h / hk, w / wk]).map(|s| queue_alloc.alloc(s));
+                self.conv(&mut embd, &raw, &k, &b, workspace, queue_alloc)?;
+                drop(k);
+                drop(b);
+
+                let embd_ = embd.merge(2..4).unwrap().transpose(&[2, 1]);
+                let mut embd = Tensor::new(embd_.dt(), embd_.shape()).map(|s| queue_alloc.alloc(s));
+                self.rearrange(&mut embd, &embd_, workspace, queue_alloc)?;
+
+                embd
+            }
+            ProjectorMeta::Merger(_) => {
+                let [k, k1] = self.weights.patch_embd(queue, &self.meta.projector);
+
+                let &[m, _, hk, wk] = k.shape() else {
+                    unreachable!()
+                };
+
+                let workspace_size = self.workspace_size(n * h / hk * w / wk);
+                let mut workspace = Workspace::new(queue_alloc, workspace, workspace_size);
+
+                let b = Tensor::new(k.dt(), &[d]);
+                let (buf, workspace) = workspace.split_at_mut(*b.get());
+                let b = b.map(|_| buf); // 全0的bias
+
+                let mut embd =
+                    Tensor::new(k.dt(), &[n, m, h / hk, w / wk]).map(|s| queue_alloc.alloc(s));
+                self.conv(&mut embd, &raw, &k, &b, workspace, queue_alloc)?; // raw: shape: [n, c, h, w]
+
+                let mut embd1 =
+                    Tensor::new(k1.dt(), &[n, m, h / hk, w / wk]).map(|s| queue_alloc.alloc(s));
+                self.conv(&mut embd1, &raw, &k1, &b, workspace, queue_alloc)?;
+
+                let inplace = unsafe { embd.map_slice_static() };
+                self.add(&mut embd, &inplace, &embd1, workspace, queue_alloc)?;
+
+                // -----reshape-------
+                // [n, m, h/hk, w/wk] -> [n, h/hk, w/wk, m]
+                let embd_ = embd.transpose(&[0, 2, 3, 1]);
+                let mut embd = Tensor::new(embd_.dt(), embd_.shape()).map(|s| queue_alloc.alloc(s));
+                self.rearrange(&mut embd, &embd_, workspace, queue_alloc)?;
+
+                // [n, h/hk, w/wk, m] -> [n * h/hk/2, 2, w/wk/2, 2*m]
+                let embd_ = embd.tile(1, &[h / hk / 2, 2]);
+                let embd_ = embd_.merge(0..2).unwrap();
+                let embd_ = embd_.tile(2, &[w / wk / 2, 2]);
+                let embd_ = embd_.merge(3..5).unwrap();
+
+                // [n * h/hk/2, 2, w/wk/2, 2*m] -> [n * h/hk/2, w/wk/2, 2, 2*m]
+                let embd_ = embd_.transpose(&[0, 2, 1, 3]);
+                let mut embd = Tensor::new(embd_.dt(), embd_.shape()).map(|s| queue_alloc.alloc(s));
+                self.rearrange(&mut embd, &embd_, workspace, queue_alloc)?;
+
+                // [n * h/hk/2, w/wk/2, 2, 2*m] -> [n, h/hk * w/wk, m]
+                let embd_ = embd.tile(0, &[n, h / hk / 2]);
+                let embd_ = embd_.merge(1..4).unwrap();
+                let embd_ = embd_.tile(2, &[2, m]);
+                let embd_ = embd_.merge(1..3).unwrap();
+
+                let mut embd = Tensor::new(embd_.dt(), embd_.shape()).map(|s| queue_alloc.alloc(s));
+                self.rearrange(&mut embd, &embd_, workspace, queue_alloc)?;
+
+                drop(k);
+                drop(b);
+                embd
+            }
         };
 
-        let mut embd = Tensor::new(dt, &[n, m, h / hk, w / wk]).map(|s| queue_alloc.alloc(s));
-        self.conv(&mut embd, &raw, &k, &b, workspace, queue_alloc)?;
-        drop(k);
-        drop(b);
-
-        let embd_ = embd.merge(2..4).unwrap().transpose(&[2, 1]);
-        let mut embd = Tensor::new(embd_.dt(), embd_.shape()).map(|s| queue_alloc.alloc(s));
-        self.rearrange(&mut embd, &embd_, workspace, queue_alloc)?;
+        // {
+        //     println!("embd shape: {:?}", embd.shape());
+        //     Ops::debug(&embd);
+        //     panic!();
+        // }
 
         let &[batch, size, _] = embd.shape() else {
             unreachable!()
         };
 
-        {
+        if let ProjectorMeta::Resampler(_) = &self.meta.projector {
             let pos_embd = self.weights.pos_embd(queue);
             let pos = pos.broadcast(0, batch);
             self.add_rows(&mut embd, &pos_embd, &pos, workspace, queue_alloc)?
@@ -210,7 +301,7 @@ where
             self.layer_norm(&mut x, &inplace, wb, workspace, queue_alloc)?
         }
 
-        for iblk in 0..=nblk {
+        for iblk in 0..1 {
             {
                 let wb = self.weights.attn_norm(iblk, queue);
                 self.layer_norm(&mut x1, &x, wb, workspace, queue_alloc)?;
@@ -228,7 +319,60 @@ where
                 let v = v;
                 {
                     let mut q = q.map_slice_mut().transpose(&[1, 0]);
-                    let k = k.map_slice().transpose(&[1, 0]);
+                    let mut k = k.map_slice().transpose(&[1, 0]);
+
+                    // mrope!
+                    if let ProjectorMeta::Merger(_) = &self.meta.projector {
+                        // println!("q.shape{:?}", q.shape()); // q.shape[16, 816, 80]
+                        // Ops::debug(&q);
+                        // panic!();
+
+                        let dt = q.dt();
+                        let shape = q.shape().to_vec();
+                        let strides = q.strides().to_vec();
+                        let offset = q.offset();
+                        let grid = [24, 34];
+                        let rope_section = None;
+
+                        let &[_, _, h, w] = raw.shape() else {
+                            unreachable!()
+                        };
+                        let (pos, pos_dt, pos_layout) =
+                            ndrope::pos_ids::pos_2d_qwen2vl_vit::<u32>([h, w], 14);
+
+                        // f16模型计算时需要传f32的sin_cos提高精度
+                        let theta = 10000.0;
+                        let (sin, sin_dt, sin_layout, cos, cos_dt, cos_layout) =
+                            sin_cos_default::<f32>(&shape, &grid, rope_section.clone(), theta);
+
+                        let (&mut [], q_, &mut []) = (unsafe { q.get_mut().align_to_mut::<u8>() })
+                        else {
+                            panic!()
+                        };
+
+                        rope_m(
+                            &q_,
+                            dt,
+                            &shape,
+                            &strides,
+                            offset,
+                            &grid,
+                            rope_section,
+                            pos,
+                            pos_dt,
+                            pos_layout,
+                            sin,
+                            sin_dt,
+                            sin_layout,
+                            cos,
+                            cos_dt,
+                            cos_layout,
+                        );
+
+                        // println!("q.shape{:?}", q.shape());
+                        // Ops::debug(&q);
+                        // panic!();
+                    }
                     let v = v.map_slice().transpose(&[1, 0]);
 
                     let mut o = unsafe { q.map_slice_static_mut() };
@@ -374,6 +518,47 @@ where
                 let mut img_embd = o;
                 let w = attn_w.map(|_| weights.resampler_proj(queue));
                 self.mat_mul(&mut img_embd, &o_, (w, None), workspace, queue_alloc)?
+            }
+            ProjectorMeta::Merger(meta) => {
+                use super::projector::merger::Meta;
+                let &Meta { d, d_img } = meta;
+                let weights = &self.weights.weights;
+
+                // {
+                //     println!("x_after_ln.shape{:?}", x.shape());
+                //     Ops::debug(&x);
+                //     panic!();
+                // }
+
+                // 每4个图像特征合为一个, x: [np, d] -> [np/4, 4*d]
+                let x = x.tile(0, &[np / 4, 4]);
+                let mut x = x.merge(1..3).unwrap();
+
+                // [np/4, di] <- [np/4, 4*d] * [4*d, di]
+                let up = Tensor::new(x.dt(), &[np / 4, di]);
+                let (buf, workspace) = workspace.split_at_mut(*up.get());
+                let mut up = up.map(|_| buf);
+                let [w, b] = weights.merger_mm_0(queue);
+                let w = Tensor::new(dt, &[di, 4 * d]).map(|_| w).transpose(&[1, 0]);
+                let b = Tensor::new(dt, &[di, 1]).map(|_| b).transpose(&[1, 0]);
+                self.mat_mul(&mut up, &x, (w, Some(b)), workspace, queue_alloc)?;
+
+                self.gelu(&mut up, workspace, queue_alloc)?;
+
+                // [np/4, d_img] <- [np/4, di] * [di, d_img]
+                let img_embd = Tensor::new(dt, &[np / 4, d_img]);
+                let (buf, workspace) = workspace.split_at_mut(*img_embd.get());
+                let mut img_embd = img_embd.map(|_| buf);
+                let [w, b] = weights.merger_mm_2(queue);
+                let w = Tensor::new(dt, &[d_img, di]).map(|_| w).transpose(&[1, 0]);
+                let b = Tensor::new(dt, &[d_img, 1]).map(|_| b).transpose(&[1, 0]);
+                self.mat_mul(&mut img_embd, &up, (w, Some(b)), workspace, queue_alloc)?;
+
+                // {
+                //     println!("img_embd.shape{:?}", img_embd.shape());
+                //     Ops::debug(&img_embd);
+                //     panic!();
+                // }
             }
         }
 
@@ -631,7 +816,8 @@ where
 
 struct WeightDecorator<W> {
     patch_embd_w: Tensor<usize>,
-    patch_embd_b: Tensor<usize>,
+    patch_embd_b: Option<Tensor<usize>>,
+    patch_embd_w1: Option<Tensor<usize>>,
     pos_embd: Tensor<usize>,
     norm: Tensor<usize>,
 
@@ -650,34 +836,70 @@ struct WeightDecorator<W> {
 
 impl ClipMeta {
     fn decorator<W>(&self, weights: W) -> WeightDecorator<W> {
-        WeightDecorator {
-            patch_embd_w: self.patch_embd_w(),
-            patch_embd_b: self.patch_embd_b(),
-            pos_embd: self.pos_embd(),
-            norm: self.norm(),
+        match &self.projector {
+            ProjectorMeta::Resampler(_meta) => WeightDecorator {
+                patch_embd_w: self.patch_embd_w(),
+                patch_embd_b: Some(self.patch_embd_b()),
+                patch_embd_w1: None,
+                pos_embd: self.pos_embd(),
+                norm: self.norm(),
 
-            attn_qkv_w: self.attn_qkv_w(),
-            attn_qkv_b: self.attn_qkv_b(),
-            attn_o_w: self.attn_o_w(),
-            attn_o_b: self.attn_o_b(),
-            ffn_up_w: self.ffn_up_w(),
-            ffn_up_b: self.ffn_up_b(),
-            ffn_down_w: self.ffn_down_w(),
-            ffn_down_b: self.ffn_down_b(),
+                attn_qkv_w: self.attn_qkv_w(),
+                attn_qkv_b: self.attn_qkv_b(),
+                attn_o_w: self.attn_o_w(),
+                attn_o_b: self.attn_o_b(),
+                ffn_up_w: self.ffn_up_w(),
+                ffn_up_b: self.ffn_up_b(),
+                ffn_down_w: self.ffn_down_w(),
+                ffn_down_b: self.ffn_down_b(),
 
-            weights,
+                weights,
+            },
+            ProjectorMeta::Merger(_meta) => WeightDecorator {
+                patch_embd_w: self.patch_embd_w(),
+                patch_embd_b: None,
+                patch_embd_w1: Some(self.patch_embd_w1()),
+                pos_embd: self.pos_embd_qwen2vl(),
+                norm: self.norm(),
+
+                attn_qkv_w: self.attn_qkv_w(),
+                attn_qkv_b: self.attn_qkv_b(),
+                attn_o_w: self.attn_o_w(),
+                attn_o_b: self.attn_o_b(),
+                ffn_up_w: self.ffn_up_w(),
+                ffn_up_b: self.ffn_up_b(),
+                ffn_down_w: self.ffn_down_w(),
+                ffn_down_b: self.ffn_down_b(),
+
+                weights,
+            },
         }
     }
 }
 
 impl<W: WeightLoader> WeightDecorator<W> {
     #[inline]
-    pub fn patch_embd<'a>(&'a self, queue: &'a QueueOf<W::Hardware>) -> [Tensor<W::Memory<'a>>; 2] {
-        let [w, b] = self.weights.patch_embd(queue);
-        [
-            self.patch_embd_w.clone().map(|_| w),
-            self.patch_embd_b.clone().map(|_| b),
-        ]
+    pub fn patch_embd<'a>(
+        &'a self,
+        queue: &'a QueueOf<W::Hardware>,
+        projector: &ProjectorMeta,
+    ) -> [Tensor<W::Memory<'a>>; 2] {
+        match projector {
+            ProjectorMeta::Resampler(_meta) => {
+                let [w, b] = self.weights.patch_embd(queue);
+                [
+                    self.patch_embd_w.clone().map(|_| w),
+                    self.patch_embd_b.clone().unwrap().map(|_| b),
+                ]
+            }
+            ProjectorMeta::Merger(_meta) => {
+                let [w, w1] = self.weights.patch_embd(queue);
+                [
+                    self.patch_embd_w.clone().map(|_| w),
+                    self.patch_embd_w1.clone().unwrap().map(|_| w1),
+                ]
+            }
+        }
     }
 
     #[inline]
