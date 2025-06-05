@@ -1,11 +1,11 @@
-﻿//! All HttpResponses in this App.
+//! All HttpResponses in this App.
 
 use super::error::Error;
-use http_body_util::{BodyExt, Full, StreamBody, combinators::BoxBody};
+use http_body_util::{combinators::BoxBody, BodyExt, Full, StreamBody};
 use hyper::{
-    Response, StatusCode,
     body::{Bytes, Frame},
     header::{CACHE_CONTROL, CONNECTION, CONTENT_TYPE},
+    Response, StatusCode,
 };
 use tokio_stream::{Stream, StreamExt};
 
