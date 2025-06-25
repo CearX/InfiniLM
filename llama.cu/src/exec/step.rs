@@ -7,6 +7,7 @@
 use nn::{Arg, Named, Tensor};
 use operators::{
     Operator as _,
+    attention::{Args as AttnArgsNoKv, cuda::Operator as AttnNoKv},
     attention_kv_cached::{Args as AttnArgs, cuda::Operator as Attn},
     cuda::{CaptureStream, GraphExec, Stream, VirByte},
 };
@@ -175,6 +176,48 @@ impl<'ctx> Handle<'ctx> {
                     v_cache_base: offset_ptr(&v_cache).cast_mut().cast(),
                     mask: operators::fuesd_softmax::AttnMask::Causal,
                     pos: req.pos as _,
+                },
+                &mut [],
+                stream,
+            )
+            .unwrap()
+        }
+    }
+
+    pub(super) fn _launch_attn_qw2vl_mmproj(
+        &mut self,
+        op: &AttnNoKv,
+        attn: &Attention,
+        reqs: &[Req<Tensor<*const VirByte, 2>>],
+        stream: &Stream,
+    ) {
+        let Attention {
+            iblk: _,
+            q,
+            k,
+            v,
+            o,
+        } = attn;
+        let mut start = 0;
+        for req in reqs {
+            // [nh, n, dh]
+            let len = req.seq;
+            let q = q.clone().transform(|layout| layout.slice(1, start, 1, len));
+            let k = k.clone().transform(|layout| layout.slice(1, start, 1, len));
+            let v = v.clone().transform(|layout| layout.slice(1, start, 1, len));
+            let o = o.clone().transform(|layout| layout.slice(1, start, 1, len));
+            start += len;
+            op.launch(
+                &AttnArgsNoKv {
+                    q_layout: layout(&q),
+                    q_base: offset_ptr(&q).cast_mut().cast(),
+                    k_layout: layout(&k),
+                    k_base: offset_ptr(&k).cast(),
+                    v_layout: layout(&v),
+                    v_base: offset_ptr(&v).cast(),
+                    o_layout: layout(&o),
+                    o_base: offset_ptr(&o).cast_mut().cast(),
+                    mask: operators::fuesd_softmax::AttnMask::None,
                 },
                 &mut [],
                 stream,
