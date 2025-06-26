@@ -202,8 +202,8 @@ impl GGufModel<'_> {
             patch_embd: PatchEmbd {
                 dt,
                 shape: [d, 3, d_patch, d_patch],
-                patch_embd: get(&format!("v.patch_embd.weight")),
-                patch_embd1: get(&format!("v.patch_embd.weight.1")),
+                patch_embd: get("v.patch_embd.weight"),
+                patch_embd1: get("v.patch_embd.weight.1"),
             },
             vision_blks: (0..nblk)
                 .map(|iblk| {
@@ -274,24 +274,24 @@ impl GGufModel<'_> {
                     epsilon: epsilon as _,
                     items: NormType::LayerNorm {
                         dt_scale: dt_norm,
-                        scale: get(&format!("v.post_ln.weight")),
+                        scale: get("v.post_ln.weight"),
                         dt_bias: dt_norm,
-                        bias: get(&format!("v.post_ln.bias")),
+                        bias: get("v.post_ln.bias"),
                     },
                 },
                 mlp: Mlp {
                     up: Linear::new(
                         dt,
                         [d * 4, d * 4],
-                        get(&format!("mm.0.weight")),
-                        Some((dt_norm, get(&format!("mm.0.bias")))),
+                        get("mm.0.weight"),
+                        Some((dt_norm, get("mm.0.bias"))),
                     ),
                     act: Activation::GeLU,
                     down: Linear::new(
                         dt,
                         [d_proj, d * 4],
-                        get(&format!("mm.2.weight")),
-                        Some((dt_norm, get(&format!("mm.2.bias")))),
+                        get("mm.2.weight"),
+                        Some((dt_norm, get("mm.2.bias"))),
                     ),
                 },
             },
