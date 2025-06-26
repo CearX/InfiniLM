@@ -228,7 +228,8 @@ impl GGufModel<'_> {
                                 Some((dt_norm, get(&format!("v.blk.{iblk}.attn_qkv.bias")))),
                             ),
                             rope: Some(RoPE {
-                                nctx: 34, // mrope todo
+                                multimodal: true,
+                                nctx: 34, // image todo
                                 sin: get("sin_table"),
                                 cos: get("cos_table"),
                             }),
