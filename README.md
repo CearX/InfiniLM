@@ -109,6 +109,9 @@ Options:
 ```toml
 [model-name]
 path = "model-path"
+gpus = [0, 1, 2, 3]
+max-steps = 4096
 think = true
-max-steps = 2048
+temperature = 0.9
+top-p = 0.6
 ```

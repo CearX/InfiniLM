@@ -118,6 +118,7 @@ impl GGufModel<'_> {
                                 dt_bias.map(|dt| (dt, get(&format!("blk.{iblk}.attn_qkv.bias")))),
                             ),
                             rope: Some(RoPE {
+                                multimodal: false,
                                 nctx,
                                 sin: get("sin_table"),
                                 cos: get("cos_table"),
