@@ -47,6 +47,10 @@ pub struct ServiceArgs {
     #[clap(long)]
     max_tokens: Option<usize>,
     #[clap(long)]
+    temperature: Option<f32>,
+    #[clap(long)]
+    top_p: Option<f32>,
+    #[clap(long)]
     think: bool,
 }
 
@@ -55,6 +59,9 @@ pub struct ModelConfig {
     pub path: String,
     pub gpus: Option<Box<[c_int]>>,
     pub max_tokens: Option<usize>,
+    pub temperature: Option<f32>,
+    #[serde(rename = "top-p")]
+    pub top_p: Option<f32>,
     pub think: Option<bool>,
 }
 
@@ -67,6 +74,8 @@ impl ServiceArgs {
             name,
             gpus,
             max_tokens,
+            temperature,
+            top_p,
             think,
         } = self;
 
@@ -81,13 +90,17 @@ impl ServiceArgs {
                     path: file.clone(),
                     gpus: Some(parse_gpus(gpus.as_deref())),
                     max_tokens,
+                    temperature,
+                    top_p,
                     think: Some(think),
                 },
             )]
             .into(),
             _ => panic!("file must be a gguf model or a toml config"),
         };
-        info!("model_name list: {:?}", model_configs.keys());
+        for (name, cfg) in &model_configs {
+            info!("{name}: {cfg:?}")
+        }
 
         let mut handles = Vec::with_capacity(model_configs.len());
         let models = model_configs

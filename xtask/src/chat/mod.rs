@@ -2,7 +2,7 @@
 mod tui;
 
 use crate::{BaseArgs, macros::print_now, progress_bar};
-use llama_cu::{Message, Received, Service, Session, SessionId, TextBuf};
+use llama_cu::{Message, Received, SampleArgs, Service, Session, SessionId, TextBuf};
 use std::time::Duration;
 
 #[derive(Args)]
@@ -21,12 +21,13 @@ impl ChatArgs {
         } = self;
         let gpus = base.gpus();
         let max_steps = base.max_steps();
+        let sample_args = base.sample_args();
 
         let mut service = Service::new(base.model, &gpus, !base.no_cuda_graph);
         progress_bar(&mut service);
 
         if !advanced {
-            simple(service, max_steps)
+            simple(service, max_steps, sample_args)
         } else {
             let terminal = ratatui::init();
             let result = tui::App::new(service, max_steps).run(terminal);
@@ -36,10 +37,10 @@ impl ChatArgs {
     }
 }
 
-fn simple(mut service: Service, max_steps: usize) {
+fn simple(mut service: Service, max_steps: usize, sample_args: SampleArgs) {
     let mut session = Some(Session {
         id: SessionId(0),
-        sample_args: Default::default(),
+        sample_args,
         cache: service.terminal().new_cache(),
     });
 

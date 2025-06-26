@@ -7,7 +7,7 @@ mod service;
 use bytesize::ByteSize;
 use clap::Parser;
 use indicatif::{MultiProgress, ProgressBar, ProgressState, ProgressStyle};
-use llama_cu::Service;
+use llama_cu::{SampleArgs, Service};
 use log::info;
 use regex::Regex;
 use std::{
@@ -62,6 +62,10 @@ struct BaseArgs {
     max_steps: Option<usize>,
     #[clap(long)]
     no_cuda_graph: bool,
+    #[clap(long)]
+    temperature: Option<f32>,
+    #[clap(long)]
+    top_p: Option<f32>,
 }
 
 impl BaseArgs {
@@ -71,6 +75,15 @@ impl BaseArgs {
 
     fn max_steps(&self) -> usize {
         self.max_steps.unwrap_or(1000)
+    }
+
+    fn sample_args(&self) -> SampleArgs {
+        SampleArgs::new(
+            self.temperature.unwrap_or(0.),
+            self.top_p.unwrap_or(1.),
+            usize::MAX,
+        )
+        .unwrap()
     }
 }
 

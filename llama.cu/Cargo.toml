@@ -7,10 +7,9 @@ edition.workspace = true
 operators = { git = "https://github.com/YdrMaster/operators-rs", rev = "01b39e8", default-features = false, features = [
     "nvidia-gpu",
 ] }
-# nn = { git = "https://github.com/YdrMaster/InfiniNN", rev = "1fff7ec" }
-nn = { git = "https://github.com/YdrMaster/InfiniNN", rev = "64e23a6" }
+nn = { git = "https://github.com/YdrMaster/InfiniNN", rev = "77dd6ba" }
 ggus = { git = "https://github.com/InfiniTensor/gguf", rev = "23c362f" }
-tokeneer = { git = "https://github.com/InfiniTensor/tokeneer", rev = "afbe38e" }
+tokeneer = { git = "https://github.com/InfiniTensor/tokeneer", rev = "c48f39f" }
 
 bytesize = "2.0"
 log.workspace = true

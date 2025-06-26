@@ -25,6 +25,7 @@ impl BenchArgs {
         } = self;
         let gpus = base.gpus();
         let max_steps = base.max_steps();
+        let sample_args = base.sample_args();
         let mut prompt = prompt.unwrap_or("Once upon a time,".into());
         let batch = batch.unwrap_or(1);
 
@@ -38,7 +39,7 @@ impl BenchArgs {
         for i in 0..batch {
             let session = Session {
                 id: SessionId(i),
-                sample_args: Default::default(),
+                sample_args,
                 cache: service.terminal().new_cache(),
             };
             service
