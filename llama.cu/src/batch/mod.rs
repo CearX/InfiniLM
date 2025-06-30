@@ -1,6 +1,7 @@
 mod default;
 
 use crate::SampleArgs;
+use nn::Tensor;
 use tokeneer::utok;
 
 pub(crate) use default::DefaultStrategy;
@@ -14,10 +15,12 @@ pub trait BatchStrategy<T: 'static> {
 }
 
 // 目前在有prompt的情况下，state.seq 的长度代表prompt还有多少未prefill，也就是 `prompt[prompt.len() - state.seq..]` 代表未prefill的prompt
+
 pub(super) struct SessionStub<T> {
     pub session: Session<T>,
     pub state: State,
     pub prompt: Option<Box<[utok]>>,
+    pub image: Option<Tensor<Vec<u8>, 4>>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]

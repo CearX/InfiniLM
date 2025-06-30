@@ -273,7 +273,7 @@ impl App {
             let t = self.service.terminal();
             let text = t.render(&[Message::user(&prompt)]);
             let tokens = t.tokenize(&text);
-            t.start(session, &tokens, self.max_steps);
+            t.start(session, &tokens, self.max_steps, None);
         }
     }
 

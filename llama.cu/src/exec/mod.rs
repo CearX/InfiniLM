@@ -1,4 +1,4 @@
-﻿mod engine;
+﻿pub mod engine;
 mod engine_manager;
 mod group;
 mod kv_cache;
@@ -11,6 +11,7 @@ use crate::{
     batch::{Session as Session_, SessionId},
     op::random_sample::KVPair,
 };
+use nn::Tensor;
 use operators::cuda::{ContextSpore, CurrentCtx, DevMemSpore, EventSpore, Stream};
 use std::collections::BTreeMap;
 use tokeneer::utok;
@@ -18,6 +19,7 @@ use tokeneer::utok;
 #[allow(non_camel_case_types)]
 type upos = u32;
 
+pub use engine::Model;
 pub use engine::Progress;
 pub(crate) use engine::engine;
 pub(crate) use kv_cache::KVCache;
@@ -55,6 +57,7 @@ pub(crate) struct Request {
     pub prompt: Box<[utok]>,
     pub out: usize,
     pub max_steps: usize,
+    pub image: Option<Tensor<Vec<u8>, 4>>,
 }
 
 pub(crate) fn decode(

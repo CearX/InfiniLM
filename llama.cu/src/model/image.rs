@@ -2,7 +2,7 @@ use clip::{Image, qwen2vl_image_preprocess};
 use ndarray_layout::ArrayLayout;
 use nn::{Tensor, digit_layout::types};
 
-pub fn _qw2vl_image_preprocess() -> Tensor<Vec<u8>, 4> {
+pub fn qw2vl_image_preprocess() -> Tensor<Vec<u8>, 4> {
     use std::time::Instant;
     let time = Instant::now();
     let Some(picture) = test_utils::image() else {
@@ -30,7 +30,7 @@ pub fn _qw2vl_image_preprocess() -> Tensor<Vec<u8>, 4> {
 #[test]
 fn test_qwen2vl_image_preprocess() {
     use half::f16;
-    let image = _qw2vl_image_preprocess();
+    let image = qw2vl_image_preprocess();
     let shape = image.shape().to_vec();
     let strides = image.strides().to_vec();
     let offset = image.offset();

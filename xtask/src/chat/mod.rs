@@ -23,7 +23,7 @@ impl ChatArgs {
         let max_steps = base.max_steps();
         let sample_args = base.sample_args();
 
-        let mut service = Service::new(base.model, &gpus, !base.no_cuda_graph);
+        let mut service = Service::new(base.model, &gpus, !base.no_cuda_graph, false);
         progress_bar(&mut service);
 
         if !advanced {
@@ -57,7 +57,7 @@ fn simple(mut service: Service, max_steps: usize, sample_args: SampleArgs) {
             let t = service.terminal();
             let text = t.render(&[Message::user(&line)]);
             let tokens = t.tokenize(&text);
-            t.start(session.take().unwrap(), &tokens, max_steps);
+            t.start(session.take().unwrap(), &tokens, max_steps, None);
         }
 
         let mut buf = TextBuf::new();

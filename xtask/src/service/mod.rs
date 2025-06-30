@@ -52,6 +52,8 @@ pub struct ServiceArgs {
     top_p: Option<f32>,
     #[clap(long)]
     think: bool,
+    #[clap(long)]
+    multimodal: bool,
 }
 
 #[derive(serde::Deserialize, Debug)]
@@ -63,6 +65,7 @@ pub struct ModelConfig {
     #[serde(rename = "top-p")]
     pub top_p: Option<f32>,
     pub think: Option<bool>,
+    pub multimodal: Option<bool>,
 }
 
 impl ServiceArgs {
@@ -77,6 +80,7 @@ impl ServiceArgs {
             temperature,
             top_p,
             think,
+            multimodal,
         } = self;
 
         let path = Path::new(&file);
@@ -93,6 +97,7 @@ impl ServiceArgs {
                     temperature,
                     top_p,
                     think: Some(think),
+                    multimodal: Some(multimodal),
                 },
             )]
             .into(),

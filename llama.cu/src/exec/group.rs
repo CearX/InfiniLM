@@ -1,7 +1,8 @@
-use super::{CacheParts, Progress, model::ModelExec, upos};
+use super::{CacheParts, Model, Progress, model::ModelExec, upos};
 use crate::{batch::Req, handle::Handle, load::load_weight, memory::MemPages};
 use nn::{
-    Distribution, Graph, GraphBuilder, LLaMA, NNGraph, Tensor, TensorMeta, digit_layout::types, op,
+    Distribution, Graph, GraphBuilder, LLaMA, NNGraph, NuralNetwork, Tensor, TensorMeta,
+    digit_layout::types, op,
 };
 use operators::{
     attention_kv_cached::cuda::Operator as Attn,
@@ -29,8 +30,8 @@ pub(super) struct ModelGroupConfig<T> {
 }
 
 impl<'ctx> ModelGroup<'ctx> {
-    pub fn new<T: IntoIterator<Item = usize>>(
-        llama: LLaMA<Tensor<&[u8], 2>>,
+    pub fn new<T: IntoIterator<Item = usize>, NN: NuralNetwork<Tensor<&[u8], 2>>>(
+        model: NN,
         dist: Distribution,
         progress: Option<Arc<Progress>>,
 
@@ -49,7 +50,7 @@ impl<'ctx> ModelGroup<'ctx> {
         // 构建计算图
         let NNGraph(Graph { topo, nodes, edges }) = builder()
             .build(
-                llama.tensor_parallel(dist),
+                model.tensor_parallel(dist),
                 [
                     TensorMeta::new(types::U32, ["n_tok".into()]),
                     TensorMeta::new(types::U32, ["n_tok".into()]),

@@ -55,9 +55,15 @@ impl Model {
             temperature,
             top_p,
             think,
+            multimodal,
         } = config;
 
-        let mut service = Service::new(path, &gpus.unwrap_or(Box::new([0])), use_cuda_graph);
+        let mut service = Service::new(
+            path,
+            &gpus.unwrap_or(Box::new([0])),
+            use_cuda_graph,
+            multimodal.unwrap_or(false),
+        );
         progress_bar(&mut service);
 
         let think = if think.unwrap_or(false) {

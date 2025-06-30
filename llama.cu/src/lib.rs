@@ -7,6 +7,8 @@ mod model;
 mod op;
 mod utils;
 
+use engine::Model::LLAMA;
+use engine::Model::QWEN2VLMMPROJ;
 use exec::{Command, KVCache, Output, Request, engine};
 use ggus::GGufMetaMapExt;
 use log::info;
@@ -33,6 +35,8 @@ pub use crate::op::random_sample::SampleArgs;
 pub use batch::{Cache, Session, SessionId};
 pub use exec::Progress;
 pub use model::Message;
+pub use model::build_pos_ids_qw2vl_mmproj;
+pub use model::qw2vl_image_preprocess;
 pub use tokeneer::{TextBuf, utok};
 
 pub struct Service {
@@ -73,7 +77,12 @@ struct ModelComponents {
 }
 
 impl Service {
-    pub fn new(model: impl AsRef<Path>, gpus: &[c_int], use_cuda_grpah: bool) -> Self {
+    pub fn new(
+        model: impl AsRef<Path>,
+        gpus: &[c_int],
+        use_cuda_grpah: bool,
+        multimodal: bool,
+    ) -> Self {
         info!("start inference @gpu{gpus:?}");
         // 创建调度通道
         let (outputs, receiver) = mpsc::channel();
@@ -94,23 +103,36 @@ impl Service {
         let once_ = once.clone();
         let handle = std::thread::spawn(move || {
             let mut gguf = GGufModel::read(maps.iter().map(|x| &**x));
-            gguf.insert_sin_cos();
+            if multimodal {
+                gguf.insert_sin_cos_qw2vl();
 
-            let tokenizer = Bpe::from_gguf(&gguf);
-            let chat_template = gguf.chat_template(&tokenizer);
-            let cache_template = gguf.kv_cache();
-            let eos = meta![gguf => tokenizer_ggml_eos_token_id];
+                let qw2 = gguf.qw2vl_mmproj();
+                engine(
+                    QWEN2VLMMPROJ(qw2),
+                    &workers,
+                    commands,
+                    outputs,
+                    use_cuda_grpah,
+                )
+            } else {
+                gguf.insert_sin_cos();
 
-            once_.get_or_init(|| ModelComponents {
-                tokenizer,
-                chat_template,
-                cache_template,
-                eos,
-            });
-            drop(once_);
+                let tokenizer = Bpe::from_gguf(&gguf);
+                let chat_template = gguf.chat_template(&tokenizer);
+                let cache_template = gguf.kv_cache();
+                let eos = meta![gguf => tokenizer_ggml_eos_token_id];
 
-            let llama = gguf.llama();
-            engine(llama, &workers, commands, outputs, use_cuda_grpah)
+                once_.get_or_init(|| ModelComponents {
+                    tokenizer,
+                    chat_template,
+                    cache_template,
+                    eos,
+                });
+                drop(once_);
+
+                let llama = gguf.llama();
+                engine(LLAMA(llama), &workers, commands, outputs, use_cuda_grpah)
+            }
         });
         once.wait();
         Self {
@@ -294,7 +316,13 @@ impl Terminal {
         self.components.wait().tokenizer.encode(text)
     }
 
-    pub fn start(&self, session: Session<CacheParts>, tokens: &[utok], max_steps: usize) -> bool {
+    pub fn start(
+        &self,
+        session: Session<CacheParts>,
+        tokens: &[utok],
+        max_steps: usize,
+        image: Option<Tensor<Vec<u8>, 4>>,
+    ) -> bool {
         assert_ne!(max_steps, 0, "Cannot decode 0 step");
         self.sender
             .send(Command::Insert(Request {
@@ -302,6 +330,7 @@ impl Terminal {
                 prompt: tokens.to_vec().into(),
                 out: 1,
                 max_steps,
+                image,
             }))
             .is_ok()
     }

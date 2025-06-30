@@ -45,6 +45,7 @@ impl CacheManager {
             },
             &tokens[pos..],
             max_tokens,
+            None,
         );
         (id, tokens)
     }

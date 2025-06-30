@@ -15,6 +15,7 @@ pub(crate) use chat_template::ChatTemplate;
 pub(crate) use gguf::GGufModel;
 
 pub use chat_template::Message;
+pub use image::qw2vl_image_preprocess;
 
 /// 从指定文件的路径出发，映射所有分片文件。
 pub(crate) fn map_files(path: impl AsRef<Path>) -> Box<[Mmap]> {
@@ -183,7 +184,7 @@ impl GGufModel<'_> {
         Tensor::from_dim_slice(dt, [nctx, nblk, 2, nkvh, dh])
     }
 
-    pub fn _insert_sin_cos_qw2vl(&mut self) {
+    pub fn insert_sin_cos_qw2vl(&mut self) {
         let nctx = meta![self => llm_context_length; 34]; // from image
         let d = meta![self => llm_embedding_length];
         let nh = meta![self => llm_attention_head_count];
@@ -350,7 +351,7 @@ fn build_sin_cos<'a, const N: usize>(
 }
 
 /// 构造 pos_ids 表
-pub fn _build_pos_ids_qw2vl_mmproj(h: usize, w: usize, d_patch: usize) -> Vec<u32> {
+pub fn build_pos_ids_qw2vl_mmproj(h: usize, w: usize, d_patch: usize) -> Vec<u32> {
     let h = h / d_patch;
     let w = w / d_patch;
     let mut pos = vec![0; h * w * 2];
