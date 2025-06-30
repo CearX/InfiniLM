@@ -100,7 +100,7 @@ dependencies = [
 [[package]]
 name = "arg"
 version = "0.0.0"
-source = "git+https://github.com/YdrMaster/InfiniNN?rev=77dd6ba#77dd6ba575df1c1967518b51c0879965d9a62e97"
+source = "git+https://github.com/YdrMaster/InfiniNN?rev=7b01a0e#7b01a0e871c8af5388d97742a0868096e072036f"
 dependencies = [
  "symbolic-expr",
 ]
@@ -610,7 +610,7 @@ dependencies = [
 [[package]]
 name = "exec"
 version = "0.0.0"
-source = "git+https://github.com/YdrMaster/InfiniNN?rev=77dd6ba#77dd6ba575df1c1967518b51c0879965d9a62e97"
+source = "git+https://github.com/YdrMaster/InfiniNN?rev=7b01a0e#7b01a0e871c8af5388d97742a0868096e072036f"
 dependencies = [
  "arg",
  "graph",
@@ -823,7 +823,7 @@ checksum = "a8d1add55171497b4705a648c6b583acafb01d58050a51727785f0b2c8e0a2b2"
 [[package]]
 name = "graph"
 version = "0.0.0"
-source = "git+https://github.com/YdrMaster/InfiniNN?rev=77dd6ba#77dd6ba575df1c1967518b51c0879965d9a62e97"
+source = "git+https://github.com/YdrMaster/InfiniNN?rev=7b01a0e#7b01a0e871c8af5388d97742a0868096e072036f"
 
 [[package]]
 name = "h2"
@@ -1331,7 +1331,7 @@ dependencies = [
 [[package]]
 name = "mem"
 version = "0.0.0"
-source = "git+https://github.com/YdrMaster/InfiniNN?rev=77dd6ba#77dd6ba575df1c1967518b51c0879965d9a62e97"
+source = "git+https://github.com/YdrMaster/InfiniNN?rev=7b01a0e#7b01a0e871c8af5388d97742a0868096e072036f"
 dependencies = [
  "arg",
  "exec",
@@ -1454,7 +1454,7 @@ checksum = "86a1db1a5ed8293057d401ebd96872cb881a3693d9b55379ae320f652aea3714"
 [[package]]
 name = "nn"
 version = "0.0.0"
-source = "git+https://github.com/YdrMaster/InfiniNN?rev=77dd6ba#77dd6ba575df1c1967518b51c0879965d9a62e97"
+source = "git+https://github.com/YdrMaster/InfiniNN?rev=7b01a0e#7b01a0e871c8af5388d97742a0868096e072036f"
 dependencies = [
  "arg",
  "graph",
