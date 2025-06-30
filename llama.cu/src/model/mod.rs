@@ -348,3 +348,25 @@ fn build_sin_cos<'a, const N: usize>(
     };
     [tensor(sin), tensor(cos)]
 }
+
+/// 构造 pos_ids 表
+pub fn _build_pos_ids_qw2vl_mmproj(h: usize, w: usize, d_patch: usize) -> Vec<u32> {
+    let h = h / d_patch;
+    let w = w / d_patch;
+    let mut pos = vec![0; h * w * 2];
+
+    let mut ptr = 0;
+    for y in (0..h).step_by(2) {
+        for x in (0..w).step_by(2) {
+            for dy in 0..2 {
+                for dx in 0..2 {
+                    pos[ptr * 2] = (y + dy) as u32;
+                    pos[ptr * 2 + 1] = (x + dx) as u32;
+                    ptr += 1;
+                }
+            }
+        }
+    }
+
+    pos
+}
