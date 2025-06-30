@@ -182,6 +182,18 @@ impl GGufModel<'_> {
         Tensor::from_dim_slice(dt, [nctx, nblk, 2, nkvh, dh])
     }
 
+    pub fn _insert_sin_cos_qw2vl(&mut self) {
+        let nctx = meta![self => llm_context_length; 34]; // from image
+        let d = meta![self => llm_embedding_length];
+        let nh = meta![self => llm_attention_head_count];
+        let dh = meta![self => llm_rope_dimension_count; d / nh];
+        let dh_div_2 = dh / 2; // h, w 维度均分 dh_div_2
+        let theta = meta![self => llm_rope_freq_base; 1e4];
+        let [sin, cos] = build_sin_cos(nctx, dh_div_2, theta);
+        self.tensors.insert("sin_table", sin);
+        self.tensors.insert("cos_table", cos);
+    }
+
     #[allow(dead_code)]
     pub fn qw2vl_mmproj(&self) -> nn::Qwen2VLmmproj<Tensor<&[u8], 2>> {
         let nblk = meta![self => llm_block_count];
