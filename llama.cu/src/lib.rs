@@ -246,7 +246,7 @@ impl Service {
                 let outputs = self.terminal.cache_parts[0]
                     .0
                     .retain_primary()
-                    .apply(|ctx| exec::decode(output, kv_pair, event, &ctx.stream()));
+                    .apply(|ctx| exec::decode(output, kv_pair.unwrap(), event, &ctx.stream()));
                 for (id, mut toks) in outputs {
                     if self.forbid.contains(&id) {
                         continue;

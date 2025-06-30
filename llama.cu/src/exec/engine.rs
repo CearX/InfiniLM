@@ -5,6 +5,7 @@
 use crate::{
     CacheParts,
     batch::{Req, Round, SessionStub, State},
+    build_pos_ids_qw2vl_mmproj,
     exec::{group::ModelGroupConfig, upos},
     handle::Handle,
     op::{FastEmbedding, random_sample::KVPair},
@@ -241,7 +242,7 @@ impl<T: IntoIterator<Item = usize>> Worker<T> {
             let mut manager = EngineManager::new(chunked_prefill_len, max_toks);
             let mut handle = handle(ctx);
             let mut models = ModelGroup::new(
-                llama,
+                Model::LLAMA(llama),
                 dist,
                 progress,
                 config,
@@ -271,6 +272,7 @@ impl<T: IntoIterator<Item = usize>> Worker<T> {
                     let Round {
                         overflow,
                         tokens,
+                        image: _,
                         reqs,
                         sample,
                         output,
@@ -340,7 +342,7 @@ impl<T: IntoIterator<Item = usize>> Worker<T> {
 
                         let output = Output::Complete {
                             output: output.into(),
-                            kv_pair: kv_pairs.sporulate(),
+                            kv_pair: Some(kv_pairs.sporulate()),
                             event: stream.record().sporulate(),
                             finished: finished.into(),
                         };
@@ -364,151 +366,163 @@ impl<T: IntoIterator<Item = usize>> Worker<T> {
         })
     }
 
-    // fn lead_qw2vl_mmproj(
-    //     self,
-    //     qw2vl_mmproj: Qwen2VLmmproj<Tensor<&[u8], 2>>,
-    //     commands: Receiver<Command>,
-    //     outputs: Sender<Output>,
-    //     handle: impl FnOnce(&CurrentCtx) -> Handle,
-    // ) {
-    //     let Self {
-    //         dev,
-    //         dist,
-    //         progress,
-    //         config,
-    //         max_toks,
-    //         barrier,
-    //         task_box,
-    //         chunked_prefill_len,
-    //     } = self;
+    fn lead_qw2vl_mmproj(
+        self,
+        qw2vl_mmproj: Qwen2VLmmproj<Tensor<&[u8], 2>>,
+        commands: Receiver<Command>,
+        outputs: Sender<Output>,
+        handle: impl FnOnce(&CurrentCtx) -> Handle,
+    ) {
+        let Self {
+            dev,
+            dist,
+            progress,
+            config,
+            max_toks,
+            barrier,
+            task_box,
+            chunked_prefill_len,
+        } = self;
 
-    //     dev.set_mempool_threshold(u64::MAX);
-    //     let gpu = Gpu::new(dev.retain_primary(), Default::default());
-    //     let attn = Attn::new(&gpu);
-    //     gpu.apply(|ctx| {
-    //         let mut manager = EngineManager::new(chunked_prefill_len, max_toks);
-    //         let mut handle = handle(ctx);
-    //         let mut models = ModelGroup::new(
-    //             qw2vl_mmproj,
-    //             dist,
-    //             progress,
-    //             config,
-    //             attn,
-    //             &mut handle,
-    //             barrier.as_deref(),
-    //         );
+        dev.set_mempool_threshold(u64::MAX);
+        let gpu = Gpu::new(dev.retain_primary(), Default::default());
+        let attn = Attn::new(&gpu);
+        gpu.apply(|ctx| {
+            let mut manager = EngineManager::new(chunked_prefill_len, max_toks);
+            let mut handle = handle(ctx);
+            let mut models = ModelGroup::new(
+                Model::QWEN2VLMMPROJ(qw2vl_mmproj),
+                dist,
+                progress,
+                config,
+                attn,
+                &mut handle,
+                barrier.as_deref(),
+            );
 
-    //         let max_tok = max_toks;
-    //         let mut fast_embd = FastEmbedding::new(max_tok, ctx);
-    //         let mut pre_kv_pairs = ctx.malloc::<KVPair>(max_tok);
+            // let max_tok = max_toks;
+            // let mut fast_embd = FastEmbedding::new(max_tok, ctx);
+            // let mut pre_kv_pairs = ctx.malloc::<KVPair>(max_tok);
 
-    //         let stream = ctx.stream();
-    //         let len = max_toks;
-    //         const BUF_LEVEL: usize = 3;
-    //         let mut events: [Event; BUF_LEVEL] = std::array::from_fn(|_| stream.record());
-    //         let mut tok_buf = BufN::<utok>::new(len, BUF_LEVEL, ctx);
-    //         let mut pos_buf = BufN::<upos>::new(len, BUF_LEVEL, ctx);
-    //         let mut out_idx_buf = BufN::<utok>::new(len, BUF_LEVEL, ctx);
-    //         let mut fast_embd_buf = BufN::<(utok, utok)>::new(len, BUF_LEVEL, ctx);
+            let stream = ctx.stream();
+            let len = max_toks;
+            const BUF_LEVEL: usize = 3;
+            let mut events: [Event; BUF_LEVEL] = std::array::from_fn(|_| stream.record());
+            let mut image_buf = BufN::<u8>::new(len, BUF_LEVEL, ctx);
+            let mut pos_buf = BufN::<upos>::new(len, BUF_LEVEL, ctx);
+            let mut out_idx_buf = BufN::<utok>::new(len, BUF_LEVEL, ctx);
+            // let mut fast_embd_buf = BufN::<(utok, utok)>::new(len, BUF_LEVEL, ctx);
 
-    //         if outputs.send(Output::Ready).is_ok() {
-    //             while manager.receive(&commands, &outputs).is_ok() {
-    //                 // 组织请求
-    //                 let Round {
-    //                     overflow,
-    //                     tokens,
-    //                     reqs,
-    //                     sample,
-    //                     output,
-    //                     fast_map,
-    //                     finished,
-    //                 } = manager.prepare();
-    //                 if !overflow.is_empty()
-    //                     && outputs.send(Output::Overflow(overflow.into())).is_err()
-    //                 {
-    //                     break;
-    //                 }
-    //                 if tokens.is_empty() {
-    //                     assert!(
-    //                         reqs.is_empty()
-    //                             && sample.is_empty()
-    //                             && output.is_empty()
-    //                             && fast_map.is_empty()
-    //                             && finished.is_empty()
-    //                     );
-    //                     continue;
-    //                 }
-    //                 let out_idx = out_idx(&reqs, output.iter().map(|(_, len)| *len));
-    //                 events[out_idx_buf.index()].synchronize();
-    //                 tok_buf.save(&tokens);
-    //                 pos_buf.save(&pos(&reqs));
-    //                 out_idx_buf.save(&out_idx);
-    //                 fast_embd_buf.save(&fast_map);
-    //                 events[out_idx_buf.index()] = stream.record();
-    //                 // 加载输入
-    //                 let (key, tok) =
-    //                     models.load_inputs(&mut handle, tokens.len(), &tok_buf, &pos_buf, &stream);
-    //                 // 快速启动路径
-    //                 fast_embd.launch(
-    //                     tok,
-    //                     &pre_kv_pairs,
-    //                     &fast_embd_buf[..fast_map.len()],
-    //                     &mut handle,
-    //                     &stream,
-    //                 );
-    //                 // 通知协处理单元
-    //                 #[cfg(nccl)]
-    //                 if let Some(barrier) = &barrier {
-    //                     *task_box.write().unwrap() = Some(Task {
-    //                         key,
-    //                         reqs: reqs.clone(),
-    //                     });
-    //                     barrier.wait();
-    //                     models.share_inputs(key, &mut handle, &stream);
-    //                 }
-    //                 // 推理
-    //                 let x = models.launch(key, &reqs, &mut handle, &stream);
+            if outputs.send(Output::Ready).is_ok() {
+                while manager.receive(&commands, &outputs).is_ok() {
+                    // 组织请求
+                    let Round {
+                        overflow,
+                        tokens: _,
+                        image,
+                        reqs,
+                        sample,
+                        output,
+                        fast_map,
+                        finished,
+                    } = manager.prepare();
+                    if !overflow.is_empty()
+                        && outputs.send(Output::Overflow(overflow.into())).is_err()
+                    {
+                        break;
+                    }
+                    // if tokens.is_empty() {
+                    //     assert!(
+                    //         reqs.is_empty()
+                    //             && sample.is_empty()
+                    //             && output.is_empty()
+                    //             && fast_map.is_empty()
+                    //             && finished.is_empty()
+                    //     );
+                    //     continue;
+                    // }
+                    let out_idx = out_idx(&reqs, output.iter().map(|(_, len)| *len));
+                    events[out_idx_buf.index()].synchronize();
+                    let image = image.unwrap();
+                    let image = image.take();
+                    let image = image.as_slice();
+                    image_buf.save(image);
+                    // shape, strides?
+                    let pos_ids = build_pos_ids_qw2vl_mmproj(336, 476, 14); // todo: h, w, d_patch
+                    pos_buf.save(&pos_ids);
+                    // pos dim?
+                    out_idx_buf.save(&out_idx);
+                    // fast_embd_buf.save(&fast_map);
+                    events[out_idx_buf.index()] = stream.record();
+                    // 加载输入
+                    let (key, tok) = models.load_inputs_qw2vl_mmproj(
+                        &mut handle,
+                        image.len(),
+                        &image_buf,
+                        &pos_buf,
+                        &stream,
+                    );
+                    // 快速启动路径
+                    // fast_embd.launch(
+                    //     tok,
+                    //     &pre_kv_pairs,
+                    //     &fast_embd_buf[..fast_map.len()],
+                    //     &mut handle,
+                    //     &stream,
+                    // );
+                    // 通知协处理单元
+                    #[cfg(nccl)]
+                    if let Some(barrier) = &barrier {
+                        *task_box.write().unwrap() = Some(Task {
+                            key,
+                            reqs: reqs.clone(),
+                        });
+                        barrier.wait();
+                        models.share_inputs(key, &mut handle, &stream);
+                    }
+                    // 推理
+                    let x = models.launch(key, &reqs, &mut handle, &stream);
 
-    //                 // 如果没有输出，则跳过
-    //                 if !out_idx.is_empty() {
-    //                     let output = output
-    //                         .into_iter()
-    //                         .filter_map(|(id, len)| if len > 0 { Some((id, len)) } else { None })
-    //                         .collect::<Vec<_>>();
-    //                     let kv_pairs = output_head.launch(
-    //                         x,
-    //                         &out_idx_buf[..out_idx.len()],
-    //                         sample,
-    //                         &mut handle,
-    //                         &stream,
-    //                     );
-    //                     stream.memcpy_d2d(&mut pre_kv_pairs[..kv_pairs.len()], &kv_pairs);
+                    // 如果没有输出，则跳过
+                    if !out_idx.is_empty() {
+                        let output = output
+                            .into_iter()
+                            .filter_map(|(id, len)| if len > 0 { Some((id, len)) } else { None })
+                            .collect::<Vec<_>>();
+                        // let kv_pairs = output_head.launch(
+                        //     x,
+                        //     &out_idx_buf[..out_idx.len()],
+                        //     sample,
+                        //     &mut handle,
+                        //     &stream,
+                        // );
+                        // stream.memcpy_d2d(&mut pre_kv_pairs[..kv_pairs.len()], &kv_pairs);
 
-    //                     let output = Output::Complete {
-    //                         output: output.into(),
-    //                         kv_pair: kv_pairs.sporulate(),
-    //                         event: stream.record().sporulate(),
-    //                         finished: finished.into(),
-    //                     };
-    //                     if outputs.send(output).is_err() {
-    //                         break;
-    //                     }
-    //                 }
-    //             }
-    //         }
-    //         // 通知协处理单元退出
-    //         if let Some(barrier) = &barrier {
-    //             let _ = task_box.write().unwrap().take();
-    //             barrier.wait();
-    //         }
-    //         // 送回存储的会话信息
-    //         for stub in manager.into_stubs() {
-    //             if outputs.send(Output::Removed(stub.session)).is_err() {
-    //                 break;
-    //             }
-    //         }
-    //     })
-    // }
+                        let output = Output::Complete {
+                            output: output.into(),
+                            kv_pair: None,
+                            event: stream.record().sporulate(),
+                            finished: finished.into(),
+                        };
+                        if outputs.send(output).is_err() {
+                            break;
+                        }
+                    }
+                }
+            }
+            // 通知协处理单元退出
+            if let Some(barrier) = &barrier {
+                let _ = task_box.write().unwrap().take();
+                barrier.wait();
+            }
+            // 送回存储的会话信息
+            for stub in manager.into_stubs() {
+                if outputs.send(Output::Removed(stub.session)).is_err() {
+                    break;
+                }
+            }
+        })
+    }
 
     #[cfg(nccl)]
     fn work(self, llama: LLaMA<Tensor<&[u8], 2>>, comm: Communicator) {

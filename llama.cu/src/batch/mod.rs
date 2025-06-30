@@ -30,6 +30,7 @@ pub struct SessionId(pub usize);
 pub struct Round<T> {
     pub overflow: Vec<Session<T>>,
     pub tokens: Vec<utok>,
+    pub image: Option<Tensor<Vec<u8>, 4>>,
     pub reqs: Vec<Req<T>>,
     pub sample: Vec<SampleArgs>,
     pub output: Vec<(SessionId, usize)>,
@@ -42,6 +43,7 @@ impl<T> Default for Round<T> {
         Self {
             overflow: Default::default(),
             tokens: Default::default(),
+            image: Default::default(),
             reqs: Default::default(),
             sample: Default::default(),
             output: Default::default(),

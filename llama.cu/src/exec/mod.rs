@@ -38,7 +38,7 @@ pub(crate) enum Output {
     Removed(Session),
     Complete {
         output: Box<[(SessionId, usize)]>,
-        kv_pair: DevMemSpore,
+        kv_pair: Option<DevMemSpore>,
         event: EventSpore,
         finished: Box<[Session]>,
     },
@@ -47,7 +47,7 @@ pub(crate) enum Output {
 impl Output {
     pub(crate) fn drop_on(self, ctx: &CurrentCtx) {
         if let Self::Complete { kv_pair, event, .. } = self {
-            drop((kv_pair.sprout(ctx), event.sprout(ctx)))
+            drop((kv_pair.unwrap().sprout(ctx), event.sprout(ctx)))
         }
     }
 }

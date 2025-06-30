@@ -196,7 +196,7 @@ impl GGufModel<'_> {
         self.tensors.insert("cos_table", cos);
     }
 
-    #[allow(dead_code)]
+    // #[allow(dead_code)]
     pub fn qw2vl_mmproj(&self) -> nn::Qwen2VLmmproj<Tensor<&[u8], 2>> {
         let nblk = meta![self => llm_block_count];
         let d = meta![self => llm_embedding_length];

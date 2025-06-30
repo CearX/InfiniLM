@@ -12,7 +12,7 @@ pub struct GenerateArgs {
     prompt: Option<String>,
     #[clap(short = 't', long)]
     use_template: bool,
-    #[clap(short = 't', long)]
+    #[clap(short = 'm', long)]
     multimodal: bool,
 }
 

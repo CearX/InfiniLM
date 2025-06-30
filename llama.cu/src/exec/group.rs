@@ -1,9 +1,6 @@
 use super::{CacheParts, Model, Progress, model::ModelExec, upos};
 use crate::{batch::Req, handle::Handle, load::load_weight, memory::MemPages};
-use nn::{
-    Distribution, Graph, GraphBuilder, LLaMA, NNGraph, NuralNetwork, Tensor, TensorMeta,
-    digit_layout::types, op,
-};
+use nn::{Distribution, Graph, GraphBuilder, NNGraph, Tensor, TensorMeta, digit_layout::types, op};
 use operators::{
     attention_kv_cached::cuda::Operator as Attn,
     cuda::{DevByte, DevMem, Stream, VirByte},
@@ -30,13 +27,11 @@ pub(super) struct ModelGroupConfig<T> {
 }
 
 impl<'ctx> ModelGroup<'ctx> {
-    pub fn new<T: IntoIterator<Item = usize>, NN: NuralNetwork<Tensor<&[u8], 2>>>(
-        model: NN,
+    pub fn new<T: IntoIterator<Item = usize>>(
+        model: Model<'ctx>, // 'ctx?
         dist: Distribution,
         progress: Option<Arc<Progress>>,
-
         config: ModelGroupConfig<T>,
-
         attn: Attn,
         handle: &mut Handle<'ctx>,
         barrier: Option<&Barrier>,
@@ -48,15 +43,54 @@ impl<'ctx> ModelGroup<'ctx> {
         } = config;
 
         // 构建计算图
-        let NNGraph(Graph { topo, nodes, edges }) = builder()
-            .build(
-                model.tensor_parallel(dist),
-                [
-                    TensorMeta::new(types::U32, ["n_tok".into()]),
-                    TensorMeta::new(types::U32, ["n_tok".into()]),
-                ],
-            )
-            .unwrap();
+        let NNGraph(Graph { topo, nodes, edges }) = match model {
+            Model::LLAMA(inner) => {
+                // inner 是 LLaMA<Tensor<&[u8], 2>>
+                let nngraph = builder()
+                    .build(
+                        inner.tensor_parallel(dist),
+                        [
+                            TensorMeta::new(types::U32, ["n_tok".into()]),
+                            TensorMeta::new(types::U32, ["n_tok".into()]),
+                        ],
+                    )
+                    .unwrap();
+                nngraph
+            }
+            Model::QWEN2VLMMPROJ(inner) => {
+                // inner 是 Qwen2VLmmproj<Tensor<&[u8], 2>>
+                let nngraph = builder()
+                    .build(
+                        inner.tensor_parallel(dist),
+                        [
+                            TensorMeta::new(
+                                types::U32,
+                                [
+                                    "n_image".into(),
+                                    "c_image".into(),
+                                    "h_image".into(),
+                                    "w_image".into(),
+                                    // 1.into(),
+                                    // 3.into(),
+                                    // 336.into(),
+                                    // 476.into(),
+                                ],
+                            ),
+                            TensorMeta::new(
+                                types::U32,
+                                [
+                                    "patches".into(),
+                                    "d_pos".into(), // 816.into(),
+                                                    // 2.into(),
+                                ],
+                            ),
+                        ],
+                    )
+                    .unwrap();
+                nngraph
+            }
+        };
+
         // 加载权重
         let dev = handle.ctx.dev();
         let mut pages = MemPages::new(dev);
@@ -71,7 +105,19 @@ impl<'ctx> ModelGroup<'ctx> {
                         b.wait();
                     }
                     let key = NonZeroUsize::new(n_tok).unwrap();
-                    let exec = ModelExec::new(graph.clone(), n_tok, handle, &mut pages, true);
+                    let exec = ModelExec::new_qw2vl(
+                        graph.clone(),
+                        n_tok,
+                        1,
+                        3,
+                        336,
+                        476,
+                        14,
+                        2,
+                        handle,
+                        &mut pages,
+                        true,
+                    );
                     (key, exec)
                 })
                 .collect::<BTreeMap<_, _>>()
@@ -94,6 +140,21 @@ impl<'ctx> ModelGroup<'ctx> {
         handle: &mut Handle<'ctx>,
         len: usize,
         tok: &[utok],
+        pos: &[upos],
+        stream: &Stream<'ctx>,
+    ) -> (NonZeroUsize, &mut [DevByte]) {
+        let key = self.internal.get_key(NonZeroUsize::new(len).unwrap());
+        let model = self.internal.map_exec(key, handle, &mut self.pages, stream);
+        stream.memcpy_h2d(model.tok_buf(), &tok[..key.get()]);
+        stream.memcpy_h2d(model.pos_buf(), &pos[..key.get()]);
+        (key, model.tok_buf())
+    }
+
+    pub fn load_inputs_qw2vl_mmproj(
+        &mut self,
+        handle: &mut Handle<'ctx>,
+        len: usize,
+        tok: &[u8],
         pos: &[upos],
         stream: &Stream<'ctx>,
     ) -> (NonZeroUsize, &mut [DevByte]) {
@@ -225,7 +286,19 @@ impl<'ctx> Internal<'ctx> {
         let model = static_models.get_mut(&key).unwrap_or_else(|| {
             dyn_model_cache.get_or_insert_mut(key, || {
                 log::info!("create modelExec for key {}", key.get());
-                ModelExec::new(graph.clone(), key.get(), handle, pages, false)
+                ModelExec::new_qw2vl(
+                    graph.clone(),
+                    key.get(),
+                    1,
+                    3,
+                    336,
+                    476,
+                    14,
+                    2,
+                    handle,
+                    pages,
+                    false,
+                )
             })
         });
         // 建立映射
