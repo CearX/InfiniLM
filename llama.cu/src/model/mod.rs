@@ -1,5 +1,6 @@
 ﻿mod chat_template;
 mod gguf;
+mod image;
 
 use crate::utils::{Blob, Data, meta};
 use ggus::{GGufFileName, GGufMetaMapExt};

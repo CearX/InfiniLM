@@ -10,6 +10,10 @@ operators = { git = "https://github.com/YdrMaster/operators-rs", rev = "01b39e8"
 nn = { git = "https://github.com/YdrMaster/InfiniNN", rev = "7b01a0e" }
 ggus = { git = "https://github.com/InfiniTensor/gguf", rev = "23c362f" }
 tokeneer = { git = "https://github.com/InfiniTensor/tokeneer", rev = "c48f39f" }
+clip = { git ="https://github.com/CearX/InfiniLM.git", rev = "c7c7693"}
+test-utils = { git ="https://github.com/CearX/InfiniLM.git", rev = "c7c7693"}
+half = "2.4"
+ndarray-layout = "0.2"
 
 bytesize = "2.0"
 log.workspace = true
