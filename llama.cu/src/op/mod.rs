@@ -25,6 +25,7 @@ pub use embedding::Embedding;
 pub use fast_embedding::FastEmbedding;
 pub use gelu::Gelu;
 pub use linear::Linear;
+pub use mrope::MRope;
 pub use rms_norm::RmsNorm;
 pub use rope::Rope;
 pub use swiglu::Swiglu;

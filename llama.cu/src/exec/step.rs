@@ -121,6 +121,7 @@ impl<'ctx> Handle<'ctx> {
             "rms-norm" => launch!(RmsNorm),
             "linear" => launch!(Linear),
             "rope" => launch!(Rope),
+            "mrope" => launch!(MRope),
             "gelu" => launch!(Gelu),
             "swiglu" => launch!(Swiglu),
             #[cfg(nccl)]
