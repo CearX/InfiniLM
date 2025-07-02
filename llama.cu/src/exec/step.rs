@@ -119,6 +119,7 @@ impl<'ctx> Handle<'ctx> {
         match &*op.name {
             "embedding" => launch!(Embedding),
             "rms-norm" => launch!(RmsNorm),
+            "layer-norm" => launch!(LayerNorm),
             "linear" => launch!(Linear),
             "rope" => launch!(Rope),
             "mrope" => launch!(MRope),
