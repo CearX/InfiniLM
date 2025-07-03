@@ -109,7 +109,7 @@ impl Operator for MRope {
 }
 
 fn code(tp: DigitLayout, ta: DigitLayout) -> String {
-    const CODE: &str = include_str!("rope.cuh");
+    const CODE: &str = include_str!("mrope.cuh");
     let ta = cuda_type(ta);
     let tp = cuda_type(tp);
 
@@ -121,7 +121,7 @@ fn code(tp: DigitLayout, ta: DigitLayout) -> String {
     let code = format!(
         r#"{CODE}
 
-extern "C" __global__ void rope(
+extern "C" __global__ void mrope(
     {ta} *__restrict__ y,
     int const stride_token_y,
     int const stride_head_y,
