@@ -9,6 +9,7 @@ use crate::{
     exec::{group::ModelGroupConfig, model::AttnType, upos},
     handle::Handle,
     op::{FastEmbedding, random_sample::KVPair},
+    qw2vl_image_preprocess,
 };
 use nn::{Distribution, LLaMA, Qwen2VLmmproj, Tensor};
 use operators::{
@@ -448,7 +449,8 @@ impl<T: IntoIterator<Item = usize>> Worker<T> {
                     // }
                     let out_idx = out_idx(&reqs, output.iter().map(|(_, len)| *len));
                     events[out_idx_buf.index()].synchronize();
-                    let image = image.unwrap();
+                    let image = qw2vl_image_preprocess();
+                    // let image = image.unwrap();
                     let shape = image.shape().to_vec();
                     assert_eq!(shape.len(), 4);
                     let h = shape[2];

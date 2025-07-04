@@ -34,10 +34,10 @@ pub(super) struct Attention {
 }
 
 pub(super) struct Conv {
-    pub y: Tensor<*const VirByte, 4>,
-    pub x: Tensor<*const VirByte, 4>,
-    pub w: Tensor<*const VirByte, 4>,
-    pub b: Option<Tensor<*const VirByte, 1>>,
+    pub y: Tensor<*const VirByte, 2>,
+    pub x: Tensor<*const VirByte, 2>,
+    pub w: Tensor<*const VirByte, 2>,
+    pub b: Option<Tensor<*const VirByte, 2>>,
     pub d_patch: usize,
 }
 
@@ -91,6 +91,61 @@ impl<'ctx> Handle<'ctx> {
                     iblk.parse().unwrap()
                 };
                 exec_.push(Step::Attention(Box::new(Attention { iblk, q, k, v, o })));
+                continue;
+            }
+            if exec.node.value.name == "conv" {
+                if let Some(stream) = stream.take() {
+                    exec_.push(Step::Graph(
+                        self.ctx.instantiate(&stream.end()),
+                        Default::default(),
+                    ))
+                }
+
+                let nn::Exec {
+                    node: Named { name: _, value: op },
+                    inputs,
+                    outputs,
+                } = exec;
+
+                let Some(nn::Arg::Bool(bias)) = op.arg else {
+                    panic!()
+                };
+                let (x, w, b) = match &*inputs {
+                    [x, w] if !bias => {
+                        destruct!([x, w] = inputs);
+                        (x, w, None)
+                    }
+                    [x, w, add] if !bias => {
+                        destruct!([x, w, add] = inputs);
+                        (x, w, Some(add))
+                    }
+                    [x, w, b] if bias => {
+                        destruct!([x, w, b] = inputs);
+                        (x, w, Some(b))
+                    }
+                    _ => panic!(),
+                };
+                // if bias {
+                //     destruct!([x, w, b] = inputs);
+                //     (x, w, Some(b))
+                // } else {
+                //     destruct!([x, w] = inputs);
+                //     (x, w, None)
+                // };
+                // let (x, w, b) = match &*inputs {
+                //     [x, w] => (*x, *w, None),
+                //     [x, w, b] => (*x, *w, Some(*b)),
+                //     _ => panic!(),
+                // };
+                destruct!([y] = outputs);
+
+                exec_.push(Step::Conv(Box::new(Conv {
+                    y,
+                    x,
+                    w,
+                    b,
+                    d_patch: 14, // todo
+                })));
                 continue;
             }
             if use_cuda_graph {

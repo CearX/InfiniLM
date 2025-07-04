@@ -10,13 +10,15 @@ operators = { git = "https://github.com/CearX/operators-rs.git", rev = "8a0d58a"
 ] }
 
 #nn = { git = "https://github.com/YdrMaster/InfiniNN", rev = "7b01a0e" }
-nn = { git = "https://github.com/CearX/InfiniNN.git", rev = "f0892b5" }
+#nn = { git = "https://github.com/CearX/InfiniNN.git", rev = "f0892b5" }
+nn = { git = "https://github.com/CearX/InfiniNN.git", rev = "2c4bbe7" } # conv add
 ggus = { git = "https://github.com/InfiniTensor/gguf", rev = "23c362f" }
 tokeneer = { git = "https://github.com/InfiniTensor/tokeneer", rev = "c48f39f" }
 clip = { git ="https://github.com/CearX/InfiniLM.git", rev = "c7c7693"}
 test-utils = { git ="https://github.com/CearX/InfiniLM.git", rev = "c7c7693"}
 half = "2.4"
 ndarray-layout = "0.2"
+mem-rearrange = "0.1.1"
 
 bytesize = "2.0"
 log.workspace = true

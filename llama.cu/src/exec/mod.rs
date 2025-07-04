@@ -57,7 +57,7 @@ pub(crate) struct Request {
     pub prompt: Box<[utok]>,
     pub out: usize,
     pub max_steps: usize,
-    pub image: Option<Tensor<Vec<u8>, 4>>,
+    pub image: Option<Tensor<Vec<u8>, 2>>,
 }
 
 pub(crate) fn decode(

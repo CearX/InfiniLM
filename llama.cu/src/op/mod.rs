@@ -20,6 +20,7 @@ use operators::cuda::{Stream, VirByte};
 
 pub mod random_sample;
 
+pub use add::Add;
 #[cfg(nccl)]
 pub use all_reduce::AllReduce;
 pub use embedding::Embedding;

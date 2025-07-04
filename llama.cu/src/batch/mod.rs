@@ -20,7 +20,7 @@ pub(super) struct SessionStub<T> {
     pub session: Session<T>,
     pub state: State,
     pub prompt: Option<Box<[utok]>>,
-    pub image: Option<Tensor<Vec<u8>, 4>>,
+    pub image: Option<Tensor<Vec<u8>, 2>>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
@@ -30,7 +30,7 @@ pub struct SessionId(pub usize);
 pub struct Round<T> {
     pub overflow: Vec<Session<T>>,
     pub tokens: Vec<utok>,
-    pub image: Option<Tensor<Vec<u8>, 4>>,
+    pub image: Option<Tensor<Vec<u8>, 2>>,
     pub reqs: Vec<Req<T>>,
     pub sample: Vec<SampleArgs>,
     pub output: Vec<(SessionId, usize)>,

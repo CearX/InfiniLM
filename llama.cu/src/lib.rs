@@ -321,7 +321,7 @@ impl Terminal {
         session: Session<CacheParts>,
         tokens: &[utok],
         max_steps: usize,
-        image: Option<Tensor<Vec<u8>, 4>>,
+        image: Option<Tensor<Vec<u8>, 2>>,
     ) -> bool {
         assert_ne!(max_steps, 0, "Cannot decode 0 step");
         self.sender
