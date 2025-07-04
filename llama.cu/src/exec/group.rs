@@ -1,8 +1,17 @@
-use super::{CacheParts, Model, Progress, model::ModelExec, upos};
+use super::{
+    CacheParts, Model, Progress,
+    model::{AttnType, ModelExec},
+    upos,
+};
 use crate::{batch::Req, handle::Handle, load::load_weight, memory::MemPages};
-use nn::{Distribution, Graph, GraphBuilder, NNGraph, Tensor, TensorMeta, digit_layout::types, op};
+use nn::{
+    Distribution, Graph, GraphBuilder, NNGraph, Tensor, TensorMeta,
+    digit_layout::types,
+    op::{self, conv},
+};
 use operators::{
     attention_kv_cached::cuda::Operator as Attn,
+    conv::cuda::ConvIm2Col,
     cuda::{DevByte, DevMem, Stream, VirByte},
 };
 use std::{
@@ -14,7 +23,8 @@ use tokeneer::utok;
 
 pub(crate) struct ModelGroup<'ctx> {
     internal: Internal<'ctx>,
-    attn: Attn,
+    attn: AttnType,
+    conv: Option<&'ctx ConvIm2Col>,
     pages: MemPages,
     _weight: DevMem<'ctx>,
 }
@@ -28,11 +38,12 @@ pub(super) struct ModelGroupConfig<T> {
 
 impl<'ctx> ModelGroup<'ctx> {
     pub fn new<T: IntoIterator<Item = usize>>(
-        model: Model<'ctx>, // 'ctx?
+        model: Model<'ctx>,
         dist: Distribution,
         progress: Option<Arc<Progress>>,
         config: ModelGroupConfig<T>,
-        attn: Attn,
+        attn: AttnType,
+        conv: Option<&'ctx ConvIm2Col>,
         handle: &mut Handle<'ctx>,
         barrier: Option<&Barrier>,
     ) -> Self {
@@ -45,7 +56,6 @@ impl<'ctx> ModelGroup<'ctx> {
         // 构建计算图
         let NNGraph(Graph { topo, nodes, edges }) = match model {
             Model::LLAMA(inner) => {
-                // inner 是 LLaMA<Tensor<&[u8], 2>>
                 let nngraph = builder()
                     .build(
                         inner.tensor_parallel(dist),
@@ -58,32 +68,15 @@ impl<'ctx> ModelGroup<'ctx> {
                 nngraph
             }
             Model::QWEN2VLMMPROJ(inner) => {
-                // inner 是 Qwen2VLmmproj<Tensor<&[u8], 2>>
                 let nngraph = builder()
                     .build(
                         inner.tensor_parallel(dist),
                         [
                             TensorMeta::new(
                                 types::U32,
-                                [
-                                    "n_image".into(),
-                                    "c_image".into(),
-                                    "h_image".into(),
-                                    "w_image".into(),
-                                    // 1.into(),
-                                    // 3.into(),
-                                    // 336.into(),
-                                    // 476.into(),
-                                ],
+                                ["n_img".into(), 3.into(), "h_img".into(), "w_img".into()],
                             ),
-                            TensorMeta::new(
-                                types::U32,
-                                [
-                                    "patches".into(),
-                                    "d_pos".into(), // 816.into(),
-                                                    // 2.into(),
-                                ],
-                            ),
+                            TensorMeta::new(types::U32, ["patches".into(), 2.into()]),
                         ],
                     )
                     .unwrap();
@@ -105,15 +98,13 @@ impl<'ctx> ModelGroup<'ctx> {
                         b.wait();
                     }
                     let key = NonZeroUsize::new(n_tok).unwrap();
-                    let exec = ModelExec::new_qw2vl(
+                    let exec = ModelExec::new(
                         graph.clone(),
                         n_tok,
                         1,
-                        3,
                         336,
                         476,
                         14,
-                        2,
                         handle,
                         &mut pages,
                         true,
@@ -130,6 +121,7 @@ impl<'ctx> ModelGroup<'ctx> {
         Self {
             internal: models_with_one_dyn,
             attn,
+            conv,
             pages,
             _weight,
         }
@@ -189,6 +181,7 @@ impl<'ctx> ModelGroup<'ctx> {
         let Self {
             internal,
             attn,
+            conv,
             pages,
             ..
         } = self;
@@ -216,7 +209,7 @@ impl<'ctx> ModelGroup<'ctx> {
         internal
             .get_mut(&key)
             .unwrap()
-            .launch(attn, handle, &reqs, stream)
+            .launch(attn, conv, handle, &reqs, stream)
     }
 }
 
@@ -286,15 +279,13 @@ impl<'ctx> Internal<'ctx> {
         let model = static_models.get_mut(&key).unwrap_or_else(|| {
             dyn_model_cache.get_or_insert_mut(key, || {
                 log::info!("create modelExec for key {}", key.get());
-                ModelExec::new_qw2vl(
+                ModelExec::new(
                     graph.clone(),
                     key.get(),
                     1,
-                    3,
                     336,
                     476,
                     14,
-                    2,
                     handle,
                     pages,
                     false,
@@ -310,10 +301,14 @@ impl<'ctx> Internal<'ctx> {
 fn builder() -> GraphBuilder {
     let mut ans = GraphBuilder::default();
     ans.register_op("embedding", op::embedding::Embedding)
+        .register_op("conv", op::conv::Conv)
+        .register_op("layer-norm", op::normalization::LayerNorm)
         .register_op("rms-norm", op::normalization::RmsNorm)
         .register_op("linear", op::linear::Linear)
         .register_op("rope", op::rope::Rope)
+        .register_op("mrope", op::mrope::Mrope)
         .register_op("attention", op::attention::Attention)
+        .register_op("gelu", op::activation::GeLU)
         .register_op("swiglu", op::activation::SwiGLU)
         .register_op("concat", op::concat::Concat)
         .register_op("split", op::split::Split)

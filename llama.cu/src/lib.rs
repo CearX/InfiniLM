@@ -35,7 +35,7 @@ pub use crate::op::random_sample::SampleArgs;
 pub use batch::{Cache, Session, SessionId};
 pub use exec::Progress;
 pub use model::Message;
-pub use model::build_pos_ids_qw2vl_mmproj;
+pub use model::build_pos_ids;
 pub use model::qw2vl_image_preprocess;
 pub use tokeneer::{TextBuf, utok};
 

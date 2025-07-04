@@ -9,7 +9,9 @@ use bytesize::ByteSize;
 use log::trace;
 use nn::{NNGraph, Tensor};
 use operators::{
-    attention_kv_cached::cuda::Operator as Attn,
+    attention::cuda::Operator as Attn,
+    attention_kv_cached::cuda::Operator as AttnKv,
+    conv::cuda::ConvIm2Col,
     cuda::{DevByte, Stream, VirByte, VirMem},
 };
 use std::time::Instant;
@@ -25,82 +27,22 @@ impl<'ctx> ModelExec<'ctx> {
     pub fn new(
         graph: NNGraph<Tensor<*const VirByte, 2>>,
         n_tok: usize,
-        handle: &mut Handle<'ctx>,
-        pages: &mut MemPages,
-        use_cuda_graph: bool,
-    ) -> Self {
-        let graph = graph.lower(&[("n_tok", n_tok)].into(), |t| t);
-
-        let mem_range_map = graph.mem_range_map(8 << 30, 512);
-
-        let mut workspace = pages.reserve_vir(mem_range_map.range.len());
-        let ptr = workspace.as_ptr();
-        let graph = graph.lower(
-            |key| unsafe { ptr.byte_add(mem_range_map.map[&key].start) },
-            |&data| data,
-        );
-        let inputs: Box<[Tensor<*const VirByte, 2>]> = graph
-            .0
-            .topo
-            .global_inputs()
-            .map(|i| graph.0.edges[i].clone())
-            .collect::<Box<_>>();
-        let outputs = graph
-            .0
-            .topo
-            .global_outputs()
-            .iter()
-            .map(|&i| graph.0.edges[i].clone())
-            .collect::<Box<_>>();
-        let exec = graph.into_exec();
-
-        // memcpy node 要求当时虚地址有对应的物理页
-        pages.map(&mut workspace, ..);
-
-        // 构造 cuda graph
-        let time = Instant::now();
-        let execs = handle.build_steps(exec, use_cuda_graph);
-        trace!(
-            "model compiled @{} in {:.2?}, seq len = {n_tok}, workspace = {}",
-            handle.ctx.dev().index(),
-            time.elapsed(),
-            ByteSize::b(workspace.len() as _).display(),
-        );
-
-        // 解除映射回收物理页
-        pages.unmap(&mut workspace, ..);
-
-        Self {
-            execs,
-            workspace,
-            inputs,
-            outputs,
-        }
-    }
-
-    pub fn new_qw2vl(
-        graph: NNGraph<Tensor<*const VirByte, 2>>,
-        n_tok: usize,
-        n_image: usize,
-        c_image: usize,
-        h_image: usize,
-        w_image: usize,
+        n_img: usize,
+        h_img: usize,
+        w_img: usize,
         d_patch: usize,
-        d_pos: usize,
         handle: &mut Handle<'ctx>,
         pages: &mut MemPages,
         use_cuda_graph: bool,
     ) -> Self {
-        let patches = (h_image / d_patch) * (w_image / d_patch);
+        let patches = (h_img / d_patch) * (w_img / d_patch);
         let graph = graph.lower(
             &[
                 ("n_tok", n_tok),
-                ("n_image", n_image),
-                ("c_image", c_image),
-                ("h_image", h_image),
-                ("w_image", w_image),
+                ("n_img", n_img),
+                ("h_img", h_img),
+                ("w_img", w_img),
                 ("patches", patches),
-                ("d_pos", d_pos),
             ]
             .into(),
             |t| t,
@@ -154,6 +96,11 @@ impl<'ctx> ModelExec<'ctx> {
     }
 }
 
+pub enum AttnType {
+    ATTNKV(AttnKv),
+    ATTN(Attn),
+}
+
 impl ModelExec<'_> {
     /// 映射虚页
     pub fn map(&mut self, pages: &mut MemPages) {
@@ -175,7 +122,8 @@ impl ModelExec<'_> {
 
     pub fn launch(
         &mut self,
-        attn: &Attn,
+        attn: &AttnType,
+        conv: &mut Option<&ConvIm2Col>,
         handle: &mut Handle,
         reqs: &[Req<Tensor<*const VirByte, 2>>],
         stream: &Stream,
@@ -193,6 +141,7 @@ impl ModelExec<'_> {
                     }
                 }
                 Step::Attention(box_) => handle.launch_attn(attn, box_, reqs, stream),
+                Step::Conv(box_) => handle.launch_conv(conv.unwrap(), box_, reqs, stream),
                 Step::Exec(exec) => handle.launch_nn_exec(exec, stream),
             }
         }

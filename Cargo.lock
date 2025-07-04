@@ -2003,7 +2003,7 @@ dependencies = [
  "minijinja",
  "ndarray-layout 0.2.2",
  "nn",
- "operators 0.0.0 (git+https://github.com/YdrMaster/operators-rs?rev=01b39e8)",
+ "operators 0.0.0 (git+https://github.com/CearX/operators-rs.git?rev=8a0d58a)",
  "rand 0.9.1",
  "regex",
  "search-corex-tools 0.0.0 (git+https://github.com/YdrMaster/cuda-driver?rev=b0148c0)",
@@ -2504,7 +2504,7 @@ dependencies = [
 [[package]]
 name = "operators"
 version = "0.0.0"
-source = "git+https://github.com/YdrMaster/operators-rs?rev=01b39e8#01b39e83a2c71069944ee47951f27318f98d407a"
+source = "git+https://github.com/CearX/operators-rs.git?rev=8a0d58a#8a0d58a341f548da74056e288e2129dad98f430a"
 dependencies = [
  "build-script-cfg 0.0.0",
  "cublas",

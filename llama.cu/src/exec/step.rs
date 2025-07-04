@@ -7,16 +7,21 @@
 use nn::{Arg, Named, Tensor};
 use operators::{
     Operator as _,
-    attention::{Args as AttnArgsNoKv, cuda::Operator as AttnNoKv},
-    attention_kv_cached::{Args as AttnArgs, cuda::Operator as Attn},
+    attention::Args as AttnArgs,
+    attention_kv_cached::Args as AttnKvArgs,
+    conv::Args as ConvArgs,
+    conv::cuda::ConvIm2Col,
     cuda::{CaptureStream, GraphExec, Stream, VirByte},
 };
 use regex::Regex;
 use std::{fmt, sync::LazyLock};
 
+use super::model::AttnType;
+
 pub(super) enum Step<'ctx> {
     Graph(GraphExec<'ctx>, Box<[Tensor<*const VirByte, 2>]>),
     Attention(Box<Attention>),
+    Conv(Box<Conv>),
     Exec(nn::Exec<*const VirByte>),
 }
 
@@ -26,6 +31,14 @@ pub(super) struct Attention {
     pub k: Tensor<*const VirByte, 2>,
     pub v: Tensor<*const VirByte, 2>,
     pub o: Tensor<*const VirByte, 2>,
+}
+
+pub(super) struct Conv {
+    pub y: Tensor<*const VirByte, 4>,
+    pub x: Tensor<*const VirByte, 4>,
+    pub w: Tensor<*const VirByte, 4>,
+    pub b: Option<Tensor<*const VirByte, 1>>,
+    pub d_patch: usize,
 }
 
 impl<'ctx> Handle<'ctx> {
@@ -143,90 +156,114 @@ impl<'ctx> Handle<'ctx> {
 
     pub(super) fn launch_attn(
         &mut self,
-        op: &Attn,
+        op: &AttnType,
         attn: &Attention,
         reqs: &[Req<Tensor<*const VirByte, 2>>],
         stream: &Stream,
     ) {
         let Attention { iblk, q, k, v, o } = attn;
         let mut start = 0;
-        for req in reqs {
-            // [nkvh, 2, nctx, dh]
-            let cache = req.cache.clone();
-            let cache = cache.transform(|layout| layout.index(1, *iblk));
-            let k_cache = cache.clone().transform(|layout| layout.index(1, 0));
-            let v_cache = cache.clone().transform(|layout| layout.index(1, 1));
-            // [nh, n, dh]
-            let len = req.seq;
-            let q = q.clone().transform(|layout| layout.slice(1, start, 1, len));
-            let k = k.clone().transform(|layout| layout.slice(1, start, 1, len));
-            let v = v.clone().transform(|layout| layout.slice(1, start, 1, len));
-            let o = o.clone().transform(|layout| layout.slice(1, start, 1, len));
-            start += len;
-            op.launch(
-                &AttnArgs {
-                    q_layout: layout(&q),
-                    q_base: offset_ptr(&q).cast_mut().cast(),
-                    k_layout: layout(&k),
-                    k_base: offset_ptr(&k).cast(),
-                    v_layout: layout(&v),
-                    v_base: offset_ptr(&v).cast(),
-                    o_layout: layout(&o),
-                    o_base: offset_ptr(&o).cast_mut().cast(),
-                    k_cache_layout: layout(&k_cache),
-                    k_cache_base: offset_ptr(&k_cache).cast_mut().cast(),
-                    v_cache_layout: layout(&v_cache),
-                    v_cache_base: offset_ptr(&v_cache).cast_mut().cast(),
-                    mask: operators::fuesd_softmax::AttnMask::Causal,
-                    pos: req.pos as _,
-                },
-                &mut [],
-                stream,
-            )
-            .unwrap()
+        match op {
+            AttnType::ATTNKV(op) => {
+                for req in reqs {
+                    // [nkvh, 2, nctx, dh]
+                    let cache = req.cache.clone();
+                    let cache = cache.transform(|layout| layout.index(1, *iblk));
+                    let k_cache = cache.clone().transform(|layout| layout.index(1, 0));
+                    let v_cache = cache.clone().transform(|layout| layout.index(1, 1));
+                    // [nh, n, dh]
+                    let len = req.seq;
+                    let q = q.clone().transform(|layout| layout.slice(1, start, 1, len));
+                    let k = k.clone().transform(|layout| layout.slice(1, start, 1, len));
+                    let v = v.clone().transform(|layout| layout.slice(1, start, 1, len));
+                    let o = o.clone().transform(|layout| layout.slice(1, start, 1, len));
+                    start += len;
+                    op.launch(
+                        &AttnKvArgs {
+                            q_layout: layout(&q),
+                            q_base: offset_ptr(&q).cast_mut().cast(),
+                            k_layout: layout(&k),
+                            k_base: offset_ptr(&k).cast(),
+                            v_layout: layout(&v),
+                            v_base: offset_ptr(&v).cast(),
+                            o_layout: layout(&o),
+                            o_base: offset_ptr(&o).cast_mut().cast(),
+                            k_cache_layout: layout(&k_cache),
+                            k_cache_base: offset_ptr(&k_cache).cast_mut().cast(),
+                            v_cache_layout: layout(&v_cache),
+                            v_cache_base: offset_ptr(&v_cache).cast_mut().cast(),
+                            mask: operators::fuesd_softmax::AttnMask::Causal,
+                            pos: req.pos as _,
+                        },
+                        &mut [],
+                        stream,
+                    )
+                    .unwrap()
+                }
+            }
+            AttnType::ATTN(op) => {
+                for req in reqs {
+                    // [nh, n, dh]
+                    let len = req.seq;
+                    let q = q.clone().transform(|layout| layout.slice(1, start, 1, len));
+                    let k = k.clone().transform(|layout| layout.slice(1, start, 1, len));
+                    let v = v.clone().transform(|layout| layout.slice(1, start, 1, len));
+                    let o = o.clone().transform(|layout| layout.slice(1, start, 1, len));
+                    start += len;
+                    op.launch(
+                        &AttnArgs {
+                            q_layout: layout(&q),
+                            q_base: offset_ptr(&q).cast_mut().cast(),
+                            k_layout: layout(&k),
+                            k_base: offset_ptr(&k).cast(),
+                            v_layout: layout(&v),
+                            v_base: offset_ptr(&v).cast(),
+                            o_layout: layout(&o),
+                            o_base: offset_ptr(&o).cast_mut().cast(),
+                            mask: operators::fuesd_softmax::AttnMask::None,
+                        },
+                        &mut [],
+                        stream,
+                    )
+                    .unwrap()
+                }
+            }
         }
     }
 
-    pub(super) fn _launch_attn_qw2vl_mmproj(
+    pub(super) fn launch_conv(
         &mut self,
-        op: &AttnNoKv,
-        attn: &Attention,
-        reqs: &[Req<Tensor<*const VirByte, 2>>],
+        op: &ConvIm2Col,
+        conv: &Conv,
+        _reqs: &[Req<Tensor<*const VirByte, 2>>],
         stream: &Stream,
     ) {
-        let Attention {
-            iblk: _,
-            q,
-            k,
-            v,
-            o,
-        } = attn;
-        let mut start = 0;
-        for req in reqs {
-            // [nh, n, dh]
-            let len = req.seq;
-            let q = q.clone().transform(|layout| layout.slice(1, start, 1, len));
-            let k = k.clone().transform(|layout| layout.slice(1, start, 1, len));
-            let v = v.clone().transform(|layout| layout.slice(1, start, 1, len));
-            let o = o.clone().transform(|layout| layout.slice(1, start, 1, len));
-            start += len;
-            op.launch(
-                &AttnArgsNoKv {
-                    q_layout: layout(&q),
-                    q_base: offset_ptr(&q).cast_mut().cast(),
-                    k_layout: layout(&k),
-                    k_base: offset_ptr(&k).cast(),
-                    v_layout: layout(&v),
-                    v_base: offset_ptr(&v).cast(),
-                    o_layout: layout(&o),
-                    o_base: offset_ptr(&o).cast_mut().cast(),
-                    mask: operators::fuesd_softmax::AttnMask::None,
-                },
-                &mut [],
-                stream,
-            )
-            .unwrap()
-        }
+        let Conv {
+            y,
+            x,
+            w,
+            b,
+            d_patch,
+        } = conv;
+
+        op.launch(
+            &ConvArgs {
+                y_layout: layout(y),
+                y_base: offset_ptr(y).cast_mut().cast(),
+                x_layout: layout(x),
+                x_base: offset_ptr(x).cast(),
+                w_layout: layout(w),
+                w_base: offset_ptr(w).cast(),
+                b_layout: b.as_ref().map(layout),
+                b_base: b.as_ref().map(|b| offset_ptr(b).cast()),
+                strides: [*d_patch; 2],
+                dilations: [1; 2],
+                pads: [0; 4],
+            },
+            &mut [],
+            stream,
+        )
+        .unwrap()
     }
 }
 

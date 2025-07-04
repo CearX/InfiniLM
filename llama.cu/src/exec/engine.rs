@@ -5,15 +5,17 @@
 use crate::{
     CacheParts,
     batch::{Req, Round, SessionStub, State},
-    build_pos_ids_qw2vl_mmproj,
-    exec::{group::ModelGroupConfig, upos},
+    build_pos_ids,
+    exec::{group::ModelGroupConfig, model::AttnType, upos},
     handle::Handle,
     op::{FastEmbedding, random_sample::KVPair},
 };
 use nn::{Distribution, LLaMA, Qwen2VLmmproj, Tensor};
 use operators::{
     Operator,
-    attention_kv_cached::cuda::Operator as Attn,
+    attention::cuda::Operator as Attn,
+    attention_kv_cached::cuda::Operator as AttnKv,
+    conv::cuda::ConvIm2Col,
     cuda::{ContextResource, CurrentCtx, Device, Event, Gpu, HostMem},
 };
 use std::{
@@ -157,7 +159,7 @@ pub(crate) fn engine(
 }
 
 fn mono(
-    mut model: Model<'_>,
+    model: Model<'_>,
     dev: Device,
     progress: Option<Arc<Progress>>,
     commands: Receiver<Command>,
@@ -189,7 +191,7 @@ fn mono(
                 Handle::new(ctx)
             })
         }
-        Model::QWEN2VLMMPROJ(mut qw2vl) => {
+        Model::QWEN2VLMMPROJ(qw2vl) => {
             worker.lead_qw2vl_mmproj(qw2vl, commands, outputs, |ctx| Handle::new(ctx))
         }
     }
@@ -237,7 +239,7 @@ impl<T: IntoIterator<Item = usize>> Worker<T> {
 
         dev.set_mempool_threshold(u64::MAX);
         let gpu = Gpu::new(dev.retain_primary(), Default::default());
-        let attn = Attn::new(&gpu);
+        let attn = AttnKv::new(&gpu);
         gpu.apply(|ctx| {
             let mut manager = EngineManager::new(chunked_prefill_len, max_toks);
             let mut handle = handle(ctx);
@@ -246,7 +248,8 @@ impl<T: IntoIterator<Item = usize>> Worker<T> {
                 dist,
                 progress,
                 config,
-                attn,
+                AttnType::ATTNKV(attn),
+                None,
                 &mut handle,
                 barrier.as_deref(),
             );
@@ -387,6 +390,7 @@ impl<T: IntoIterator<Item = usize>> Worker<T> {
         dev.set_mempool_threshold(u64::MAX);
         let gpu = Gpu::new(dev.retain_primary(), Default::default());
         let attn = Attn::new(&gpu);
+        let conv = ConvIm2Col::new(&gpu);
         gpu.apply(|ctx| {
             let mut manager = EngineManager::new(chunked_prefill_len, max_toks);
             let mut handle = handle(ctx);
@@ -395,7 +399,8 @@ impl<T: IntoIterator<Item = usize>> Worker<T> {
                 dist,
                 progress,
                 config,
-                attn,
+                AttnType::ATTN(attn),
+                Some(&conv),
                 &mut handle,
                 barrier.as_deref(),
             );
@@ -444,11 +449,15 @@ impl<T: IntoIterator<Item = usize>> Worker<T> {
                     let out_idx = out_idx(&reqs, output.iter().map(|(_, len)| *len));
                     events[out_idx_buf.index()].synchronize();
                     let image = image.unwrap();
+                    let shape = image.shape().to_vec();
+                    assert_eq!(shape.len(), 4);
+                    let h = shape[2];
+                    let w = shape[3];
                     let image = image.take();
                     let image = image.as_slice();
                     image_buf.save(image);
                     // shape, strides?
-                    let pos_ids = build_pos_ids_qw2vl_mmproj(336, 476, 14); // todo: h, w, d_patch
+                    let pos_ids = build_pos_ids(h, w, 14); // todo: d_patch
                     pos_buf.save(&pos_ids);
                     // pos dim?
                     out_idx_buf.save(&out_idx);
@@ -539,7 +548,7 @@ impl<T: IntoIterator<Item = usize>> Worker<T> {
 
         dev.set_mempool_threshold(u64::MAX);
         let gpu = Gpu::new(dev.retain_primary(), Default::default());
-        let attn = Attn::new(&gpu);
+        let attn = AttnKv::new(&gpu);
         let barrier = barrier.unwrap();
         gpu.apply(|ctx| {
             let mut handle = Handle::with_comm(ctx, comm);

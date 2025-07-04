@@ -351,7 +351,7 @@ fn build_sin_cos<'a, const N: usize>(
 }
 
 /// 构造 pos_ids 表
-pub fn build_pos_ids_qw2vl_mmproj(h: usize, w: usize, d_patch: usize) -> Vec<u32> {
+pub fn build_pos_ids(h: usize, w: usize, d_patch: usize) -> Vec<u32> {
     let h = h / d_patch;
     let w = w / d_patch;
     let mut pos = vec![0; h * w * 2];
