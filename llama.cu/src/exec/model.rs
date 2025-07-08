@@ -11,6 +11,7 @@ use nn::{NNGraph, Tensor};
 use operators::{
     attention_kv_cached::cuda::Operator as Attn,
     cuda::{DevByte, Stream, VirByte, VirMem},
+    rearrange::cuda::Operator as Rearr,
 };
 use std::time::Instant;
 
@@ -101,6 +102,7 @@ impl ModelExec<'_> {
     pub fn launch(
         &mut self,
         attn: &Attn,
+        rearr: Option<&Rearr>,
         handle: &mut Handle,
         reqs: &[Req<Tensor<*const VirByte, 2>>],
         stream: &Stream,
@@ -118,6 +120,9 @@ impl ModelExec<'_> {
                     }
                 }
                 Step::Attention(box_) => handle.launch_attn(attn, box_, reqs, stream),
+                Step::Rearrange(box_) => {
+                    handle.launch_rearrange(rearr.unwrap(), box_, reqs, stream)
+                }
                 Step::Exec(exec) => handle.launch_nn_exec(exec, stream),
             }
         }

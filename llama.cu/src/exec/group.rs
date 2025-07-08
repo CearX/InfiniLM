@@ -6,6 +6,7 @@ use nn::{
 use operators::{
     attention_kv_cached::cuda::Operator as Attn,
     cuda::{DevByte, DevMem, Stream, VirByte},
+    rearrange::cuda::Operator as Rearr,
 };
 use std::{
     collections::BTreeMap,
@@ -17,6 +18,7 @@ use tokeneer::utok;
 pub(crate) struct ModelGroup<'ctx> {
     internal: Internal<'ctx>,
     attn: Attn,
+    rearr: Option<&'ctx Rearr>,
     pages: MemPages,
     _weight: DevMem<'ctx>,
 }
@@ -37,6 +39,7 @@ impl<'ctx> ModelGroup<'ctx> {
         config: ModelGroupConfig<T>,
 
         attn: Attn,
+        rearr: Option<&'ctx Rearr>,
         handle: &mut Handle<'ctx>,
         barrier: Option<&Barrier>,
     ) -> Self {
@@ -83,6 +86,7 @@ impl<'ctx> ModelGroup<'ctx> {
         Self {
             internal: models_with_one_dyn,
             attn,
+            rearr,
             pages,
             _weight,
         }
@@ -127,6 +131,7 @@ impl<'ctx> ModelGroup<'ctx> {
         let Self {
             internal,
             attn,
+            rearr,
             pages,
             ..
         } = self;
@@ -154,7 +159,7 @@ impl<'ctx> ModelGroup<'ctx> {
         internal
             .get_mut(&key)
             .unwrap()
-            .launch(attn, handle, &reqs, stream)
+            .launch(attn, *rearr, handle, &reqs, stream)
     }
 }
 

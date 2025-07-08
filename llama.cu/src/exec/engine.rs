@@ -228,6 +228,7 @@ impl<T: IntoIterator<Item = usize>> Worker<T> {
                 progress,
                 config,
                 attn,
+                None,
                 &mut handle,
                 barrier.as_deref(),
             );
