@@ -13,6 +13,7 @@ use operators::{
     attention_kv_cached::cuda::Operator as AttnKv,
     conv::cuda::ConvIm2Col,
     cuda::{DevByte, Stream, VirByte, VirMem},
+    rearrange::cuda::Operator as Rearr,
 };
 use std::time::Instant;
 
@@ -124,6 +125,8 @@ impl ModelExec<'_> {
         &mut self,
         attn: &AttnType,
         conv: &mut Option<&ConvIm2Col>,
+        attn: &Attn,
+        rearr: Option<&Rearr>,
         handle: &mut Handle,
         reqs: &[Req<Tensor<*const VirByte, 2>>],
         stream: &Stream,
@@ -141,6 +144,9 @@ impl ModelExec<'_> {
                     }
                 }
                 Step::Attention(box_) => handle.launch_attn(attn, box_, reqs, stream),
+                Step::Rearrange(box_) => {
+                    handle.launch_rearrange(rearr.unwrap(), box_, reqs, stream)
+                }
                 Step::Conv(box_) => handle.launch_conv(conv.unwrap(), box_, reqs, stream),
                 Step::Exec(exec) => handle.launch_nn_exec(exec, stream),
             }

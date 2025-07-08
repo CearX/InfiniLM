@@ -12,6 +12,7 @@ use operators::{
     conv::Args as ConvArgs,
     conv::cuda::ConvIm2Col,
     cuda::{CaptureStream, GraphExec, Stream, VirByte},
+    rearrange::{Args as RearrArgs, cuda::Operator as Rearr},
 };
 use regex::Regex;
 use std::{fmt, sync::LazyLock};
@@ -21,6 +22,7 @@ use super::model::AttnType;
 pub(super) enum Step<'ctx> {
     Graph(GraphExec<'ctx>, Box<[Tensor<*const VirByte, 2>]>),
     Attention(Box<Attention>),
+    Rearrange(Box<Rearrange>),
     Conv(Box<Conv>),
     Exec(nn::Exec<*const VirByte>),
 }
@@ -31,6 +33,11 @@ pub(super) struct Attention {
     pub k: Tensor<*const VirByte, 2>,
     pub v: Tensor<*const VirByte, 2>,
     pub o: Tensor<*const VirByte, 2>,
+}
+
+pub(super) struct Rearrange {
+    pub dst: Tensor<*const VirByte, 2>,
+    pub src: Tensor<*const VirByte, 2>,
 }
 
 pub(super) struct Conv {
@@ -91,6 +98,26 @@ impl<'ctx> Handle<'ctx> {
                     iblk.parse().unwrap()
                 };
                 exec_.push(Step::Attention(Box::new(Attention { iblk, q, k, v, o })));
+                continue;
+            }
+            if exec.node.value.name == "rearrange" {
+                if let Some(stream) = stream.take() {
+                    exec_.push(Step::Graph(
+                        self.ctx.instantiate(&stream.end()),
+                        Default::default(),
+                    ))
+                }
+
+                let nn::Exec {
+                    node: Named { name: _, value: _ },
+                    inputs,
+                    outputs,
+                } = exec;
+
+                destruct!([src] = inputs);
+                destruct!([dst] = outputs);
+
+                exec_.push(Step::Rearrange(Box::new(Rearrange { dst, src })));
                 continue;
             }
             if exec.node.value.name == "conv" {
@@ -320,6 +347,27 @@ impl<'ctx> Handle<'ctx> {
             stream,
         )
         .unwrap()
+    }
+
+    pub(super) fn launch_rearrange(
+        &mut self,
+        op: &Rearr,
+        rearrange: &Rearrange,
+        _reqs: &[Req<Tensor<*const VirByte, 2>>],
+        stream: &Stream,
+    ) {
+        let Rearrange { dst, src } = rearrange;
+        op.launch(
+            &RearrArgs {
+                dst_layout: layout(dst),
+                dst_base: offset_ptr(dst).cast_mut().cast(),
+                src_layout: layout(src),
+                src_base: offset_ptr(src).cast(),
+            },
+            &mut [],
+            stream,
+        )
+        .unwrap();
     }
 }
 

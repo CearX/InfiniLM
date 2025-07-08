@@ -13,6 +13,7 @@ use operators::{
     attention_kv_cached::cuda::Operator as Attn,
     conv::cuda::ConvIm2Col,
     cuda::{DevByte, DevMem, Stream, VirByte},
+    rearrange::cuda::Operator as Rearr,
 };
 use std::{
     collections::BTreeMap,
@@ -25,6 +26,8 @@ pub(crate) struct ModelGroup<'ctx> {
     internal: Internal<'ctx>,
     attn: AttnType,
     conv: Option<&'ctx ConvIm2Col>,
+    attn: Attn,
+    rearr: Option<&'ctx Rearr>,
     pages: MemPages,
     _weight: DevMem<'ctx>,
 }
@@ -42,6 +45,9 @@ impl<'ctx> ModelGroup<'ctx> {
         dist: Distribution,
         progress: Option<Arc<Progress>>,
         config: ModelGroupConfig<T>,
+
+        attn: Attn,
+        rearr: Option<&'ctx Rearr>,
         attn: AttnType,
         conv: Option<&'ctx ConvIm2Col>,
         handle: &mut Handle<'ctx>,
@@ -121,6 +127,7 @@ impl<'ctx> ModelGroup<'ctx> {
         Self {
             internal: models_with_one_dyn,
             attn,
+            rearr,
             conv,
             pages,
             _weight,
@@ -181,6 +188,7 @@ impl<'ctx> ModelGroup<'ctx> {
         let Self {
             internal,
             attn,
+            rearr,
             conv,
             pages,
             ..
@@ -209,6 +217,7 @@ impl<'ctx> ModelGroup<'ctx> {
         internal
             .get_mut(&key)
             .unwrap()
+            .launch(attn, *rearr, handle, &reqs, stream)
             .launch(attn, conv, handle, &reqs, stream)
     }
 }
