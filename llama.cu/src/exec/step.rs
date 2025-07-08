@@ -189,6 +189,7 @@ impl<'ctx> Handle<'ctx> {
             "rms-norm" => launch!(RmsNorm),
             "layer-norm" => launch!(LayerNorm),
             "linear" => launch!(Linear),
+            "add4d" => launch!(Add4d),
             "rope" => launch!(Rope),
             "mrope" => launch!(MRope),
             "gelu" => launch!(Gelu),
