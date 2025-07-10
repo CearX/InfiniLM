@@ -137,33 +137,13 @@ impl<'ctx> Handle<'ctx> {
                 let Some(nn::Arg::Bool(bias)) = op.arg else {
                     panic!()
                 };
-                let (x, w, b) = match &*inputs {
-                    [x, w] if !bias => {
-                        destruct!([x, w] = inputs);
-                        (x, w, None)
-                    }
-                    [x, w, add] if !bias => {
-                        destruct!([x, w, add] = inputs);
-                        (x, w, Some(add))
-                    }
-                    [x, w, b] if bias => {
-                        destruct!([x, w, b] = inputs);
-                        (x, w, Some(b))
-                    }
-                    _ => panic!(),
+                let (x, w, b) = if bias {
+                    destruct!([x, w, b] = inputs);
+                    (x, w, Some(b))
+                } else {
+                    destruct!([x, w] = inputs);
+                    (x, w, None)
                 };
-                // if bias {
-                //     destruct!([x, w, b] = inputs);
-                //     (x, w, Some(b))
-                // } else {
-                //     destruct!([x, w] = inputs);
-                //     (x, w, None)
-                // };
-                // let (x, w, b) = match &*inputs {
-                //     [x, w] => (*x, *w, None),
-                //     [x, w, b] => (*x, *w, Some(*b)),
-                //     _ => panic!(),
-                // };
                 destruct!([y] = outputs);
 
                 exec_.push(Step::Conv(Box::new(Conv {

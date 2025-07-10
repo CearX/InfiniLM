@@ -119,6 +119,8 @@ impl GGufModel<'_> {
                                 get(&format!("blk.{iblk}.attn_qkv.weight")),
                                 dt_bias.map(|dt| (dt, get(&format!("blk.{iblk}.attn_qkv.bias")))),
                             ),
+                            q_norm: None,
+                            k_norm: None,
                             rope: Some(RoPE {
                                 multimodal: false,
                                 nctx,
@@ -186,8 +188,8 @@ impl GGufModel<'_> {
 
     pub fn insert_sin_cos_qw2vl(&mut self) {
         let nctx = meta![self => llm_context_length; 34]; // from image
-        let d = meta![self => llm_embedding_length];
-        let nh = meta![self => llm_attention_head_count];
+        let d = meta![self => llm_embedding_length; 1280];
+        let nh = meta![self => llm_attention_head_count;16];
         let dh = meta![self => llm_rope_dimension_count; d / nh];
         let dh_div_2 = dh / 2; // h, w 维度均分 dh_div_2
         let theta = meta![self => llm_rope_freq_base; 1e4];
@@ -197,12 +199,12 @@ impl GGufModel<'_> {
     }
 
     pub fn qw2vl_mmproj(&self) -> nn::Qwen2VLmmproj<Tensor<&[u8], 2>> {
-        let nblk = meta![self => llm_block_count];
-        let d = meta![self => llm_embedding_length];
-        let nh = meta![self => llm_attention_head_count];
+        let nblk = meta![self => llm_block_count; 32];
+        let d = meta![self => llm_embedding_length;1280];
+        let nh = meta![self => llm_attention_head_count;16];
         let nkvh = meta![self => llm_attention_head_count_kv; nh];
         let dh = meta![self => llm_rope_dimension_count; d / nh];
-        let _di = meta![self => llm_feed_forward_length];
+        let _di = meta![self => llm_feed_forward_length; 5120];
         let epsilon = meta![self => llm_attention_layer_norm_epsilon; 1e-6];
         let d_patch = 14; // ggus todo
         let d_proj = 1536;
@@ -238,8 +240,10 @@ impl GGufModel<'_> {
                                 dt,
                                 [(nh + nkvh + nkvh) * dh, d],
                                 get(&format!("v.blk.{iblk}.attn_qkv.weight")),
-                                Some((dt_norm, get(&format!("v.blk.{iblk}.attn_qkv.bias")))),
+                                Some((dt, get(&format!("v.blk.{iblk}.attn_qkv.bias")))),
                             ),
+                            q_norm: None,
+                            k_norm: None,
                             rope: Some(RoPE {
                                 multimodal: true,
                                 nctx: 34, // image todo
@@ -250,7 +254,7 @@ impl GGufModel<'_> {
                                 dt,
                                 [d, nh * dh],
                                 get(&format!("v.blk.{iblk}.attn_out.weight")),
-                                Some((dt_norm, get(&format!("v.blk.{iblk}.attn_out.bias")))),
+                                Some((dt, get(&format!("v.blk.{iblk}.attn_out.bias")))),
                             ),
                         },
                         Normalization {
@@ -268,14 +272,14 @@ impl GGufModel<'_> {
                                 dt,
                                 [d * 4, d],
                                 get(&format!("v.blk.{iblk}.ffn_up.weight")),
-                                Some((dt_norm, get(&format!("v.blk.{iblk}.ffn_up.bias")))),
+                                Some((dt, get(&format!("v.blk.{iblk}.ffn_up.bias")))),
                             ),
                             act: Activation::GeLU,
                             down: Linear::new(
                                 dt,
                                 [d, d * 4],
                                 get(&format!("v.blk.{iblk}.ffn_down.weight")),
-                                Some((dt_norm, get(&format!("v.blk.{iblk}.ffn_down.bias")))),
+                                Some((dt, get(&format!("v.blk.{iblk}.ffn_down.bias")))),
                             ),
                         },
                     )
@@ -297,14 +301,14 @@ impl GGufModel<'_> {
                         dt,
                         [d * 4, d * 4],
                         get("mm.0.weight"),
-                        Some((dt_norm, get("mm.0.bias"))),
+                        Some((dt, get("mm.0.bias"))),
                     ),
                     act: Activation::GeLU,
                     down: Linear::new(
                         dt,
                         [d_proj, d * 4],
                         get("mm.2.weight"),
-                        Some((dt_norm, get("mm.2.bias"))),
+                        Some((dt, get("mm.2.bias"))),
                     ),
                 },
             },

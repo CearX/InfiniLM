@@ -66,6 +66,11 @@ impl Operator for Linear {
             dims!([d, _] = w);
             if let Some(b) = inputs.next() {
                 let b = b.transform(|layout| layout.tile_be(0, &[1, d]).broadcast(0, n));
+                println!("y.dt: {}", y.dt());
+                println!("x.dt: {}", x.dt());
+                println!("w.dt: {}", w.dt());
+                println!("b.dt: {}", b.dt());
+                println!();
                 // y = y + b
                 Add::launch(
                     handle,

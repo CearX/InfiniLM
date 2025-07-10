@@ -251,6 +251,7 @@ impl<T: IntoIterator<Item = usize>> Worker<T> {
                 config,
                 AttnType::ATTNKV(attn),
                 None,
+                None,
                 &mut handle,
                 barrier.as_deref(),
             );
@@ -402,6 +403,7 @@ impl<T: IntoIterator<Item = usize>> Worker<T> {
                 config,
                 AttnType::ATTN(attn),
                 Some(&conv),
+                None,
                 &mut handle,
                 barrier.as_deref(),
             );

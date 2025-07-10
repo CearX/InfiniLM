@@ -97,11 +97,11 @@ extern "C" __global__ void add4d(
     int const snb,
     int const smb,
     int const shb,
-    int const swb,
+    int const swb
 ){{
     kernel(y, sny, smy, shy, swy,
            x, snx, smx, shx, swx,
-           b, snb, smb, shb, swb,);
+           b, snb, smb, shb, swb);
 }}"#
     )
 }

@@ -145,7 +145,7 @@ checksum = "dde20b3d026af13f561bdd0f15edf01fc734f0dafcedbaf42bba506a9517f223"
 [[package]]
 name = "arg"
 version = "0.0.0"
-source = "git+https://github.com/CearX/InfiniNN.git?rev=2c4bbe7#2c4bbe70a9e6dbd6a63812ab9bfef70807272fa8"
+source = "git+https://github.com/CearX/InfiniNN.git?rev=180ae2619907a945e52f1e12d90063e03c58a4a3#180ae2619907a945e52f1e12d90063e03c58a4a3"
 dependencies = [
  "symbolic-expr",
 ]
@@ -998,7 +998,7 @@ dependencies = [
 [[package]]
 name = "exec"
 version = "0.0.0"
-source = "git+https://github.com/CearX/InfiniNN.git?rev=2c4bbe7#2c4bbe70a9e6dbd6a63812ab9bfef70807272fa8"
+source = "git+https://github.com/CearX/InfiniNN.git?rev=180ae2619907a945e52f1e12d90063e03c58a4a3#180ae2619907a945e52f1e12d90063e03c58a4a3"
 dependencies = [
  "arg",
  "graph",
@@ -1387,7 +1387,7 @@ checksum = "a8d1add55171497b4705a648c6b583acafb01d58050a51727785f0b2c8e0a2b2"
 [[package]]
 name = "graph"
 version = "0.0.0"
-source = "git+https://github.com/CearX/InfiniNN.git?rev=2c4bbe7#2c4bbe70a9e6dbd6a63812ab9bfef70807272fa8"
+source = "git+https://github.com/CearX/InfiniNN.git?rev=180ae2619907a945e52f1e12d90063e03c58a4a3#180ae2619907a945e52f1e12d90063e03c58a4a3"
 
 [[package]]
 name = "h2"
@@ -2097,7 +2097,7 @@ dependencies = [
 [[package]]
 name = "mem"
 version = "0.0.0"
-source = "git+https://github.com/CearX/InfiniNN.git?rev=2c4bbe7#2c4bbe70a9e6dbd6a63812ab9bfef70807272fa8"
+source = "git+https://github.com/CearX/InfiniNN.git?rev=180ae2619907a945e52f1e12d90063e03c58a4a3#180ae2619907a945e52f1e12d90063e03c58a4a3"
 dependencies = [
  "arg",
  "exec",
@@ -2281,7 +2281,7 @@ checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
 [[package]]
 name = "nn"
 version = "0.0.0"
-source = "git+https://github.com/CearX/InfiniNN.git?rev=2c4bbe7#2c4bbe70a9e6dbd6a63812ab9bfef70807272fa8"
+source = "git+https://github.com/CearX/InfiniNN.git?rev=180ae2619907a945e52f1e12d90063e03c58a4a3#180ae2619907a945e52f1e12d90063e03c58a4a3"
 dependencies = [
  "arg",
  "graph",

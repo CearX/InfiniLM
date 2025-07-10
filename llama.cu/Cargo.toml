@@ -8,10 +8,7 @@ edition.workspace = true
 operators = { git = "https://github.com/CearX/operators-rs.git", rev = "8a0d58a", default-features = false, features = [
     "nvidia-gpu"
 ] }
-
-#nn = { git = "https://github.com/YdrMaster/InfiniNN", rev = "7b01a0e" }
-#nn = { git = "https://github.com/CearX/InfiniNN.git", rev = "f0892b5" }
-nn = { git = "https://github.com/CearX/InfiniNN.git", rev = "2c4bbe7" } # conv add
+nn = { git = "https://github.com/CearX/InfiniNN.git", rev = "180ae2619907a945e52f1e12d90063e03c58a4a3" }
 ggus = { git = "https://github.com/InfiniTensor/gguf", rev = "23c362f" }
 tokeneer = { git = "https://github.com/InfiniTensor/tokeneer", rev = "c48f39f" }
 clip = { git ="https://github.com/CearX/InfiniLM.git", rev = "c7c7693"}

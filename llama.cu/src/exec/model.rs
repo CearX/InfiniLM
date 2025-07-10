@@ -125,7 +125,6 @@ impl ModelExec<'_> {
         &mut self,
         attn: &AttnType,
         conv: &mut Option<&ConvIm2Col>,
-        attn: &Attn,
         rearr: Option<&Rearr>,
         handle: &mut Handle,
         reqs: &[Req<Tensor<*const VirByte, 2>>],

@@ -7,10 +7,9 @@ use crate::{batch::Req, handle::Handle, load::load_weight, memory::MemPages};
 use nn::{
     Distribution, Graph, GraphBuilder, NNGraph, Tensor, TensorMeta,
     digit_layout::types,
-    op::{self, conv},
+    op::{self},
 };
 use operators::{
-    attention_kv_cached::cuda::Operator as Attn,
     conv::cuda::ConvIm2Col,
     cuda::{DevByte, DevMem, Stream, VirByte},
     rearrange::cuda::Operator as Rearr,
@@ -26,7 +25,6 @@ pub(crate) struct ModelGroup<'ctx> {
     internal: Internal<'ctx>,
     attn: AttnType,
     conv: Option<&'ctx ConvIm2Col>,
-    attn: Attn,
     rearr: Option<&'ctx Rearr>,
     pages: MemPages,
     _weight: DevMem<'ctx>,
@@ -46,10 +44,9 @@ impl<'ctx> ModelGroup<'ctx> {
         progress: Option<Arc<Progress>>,
         config: ModelGroupConfig<T>,
 
-        attn: Attn,
-        rearr: Option<&'ctx Rearr>,
         attn: AttnType,
         conv: Option<&'ctx ConvIm2Col>,
+        rearr: Option<&'ctx Rearr>,
         handle: &mut Handle<'ctx>,
         barrier: Option<&Barrier>,
     ) -> Self {
@@ -217,8 +214,7 @@ impl<'ctx> ModelGroup<'ctx> {
         internal
             .get_mut(&key)
             .unwrap()
-            .launch(attn, *rearr, handle, &reqs, stream)
-            .launch(attn, conv, handle, &reqs, stream)
+            .launch(attn, conv, *rearr, handle, &reqs, stream)
     }
 }
 
@@ -310,6 +306,7 @@ impl<'ctx> Internal<'ctx> {
 fn builder() -> GraphBuilder {
     let mut ans = GraphBuilder::default();
     ans.register_op("embedding", op::embedding::Embedding)
+        .register_op("add4d", op::add4d::Add4d)
         .register_op("conv", op::conv::Conv)
         .register_op("layer-norm", op::normalization::LayerNorm)
         .register_op("rms-norm", op::normalization::RmsNorm)
@@ -321,6 +318,9 @@ fn builder() -> GraphBuilder {
         .register_op("swiglu", op::activation::SwiGLU)
         .register_op("concat", op::concat::Concat)
         .register_op("split", op::split::Split)
+        .register_op("tile", op::tile::Tile)
+        .register_op("merge", op::merge::Merge)
+        .register_op("transpose", op::transpose::Transpose)
         .register_op("all-reduce", op::all_reduce::AllReduce);
     ans
 }
