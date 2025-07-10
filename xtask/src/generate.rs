@@ -1,5 +1,4 @@
 ﻿use crate::{BaseArgs, macros::print_now, progress_bar};
-use llama_cu::qw2vl_image_preprocess as get_image;
 use llama_cu::{Message, Received, Service, Session, SessionId, TextBuf};
 use log::info;
 use std::time::{Duration, Instant};
@@ -7,13 +6,13 @@ use std::time::{Duration, Instant};
 #[derive(Args)]
 pub struct GenerateArgs {
     #[clap(flatten)]
-    base: BaseArgs,
+    pub(crate) base: BaseArgs,
     #[clap(short, long)]
-    prompt: Option<String>,
+    pub(crate) prompt: Option<String>,
     #[clap(short = 't', long)]
-    use_template: bool,
+    pub(crate) use_template: bool,
     #[clap(short = 'm', long)]
-    multimodal: bool,
+    pub(crate) multimodal: bool,
 }
 
 impl GenerateArgs {

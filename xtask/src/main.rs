@@ -25,7 +25,29 @@ extern crate clap;
 fn main() {
     logger::init();
     use Commands::*;
-    match Cli::parse().command {
+    // match Cli::parse().command {
+    //     Generate(args) => args.generate(),
+    //     Chat(args) => args.chat(),
+    //     Service(args) => args.service(),
+    //     Bench(args) => args.bench(),
+    // }
+    // 手动设置命令行参数
+    let args = Cli {
+        command: Commands::Generate(generate::GenerateArgs {
+            base: BaseArgs {
+                model: "/home/cearx/qy/model/Qwen2VLnn-mmproj-2B-Instruct-v2.0-F16.gguf".into(),
+                gpus: None,
+                max_steps: None,
+                no_cuda_graph: false,
+                temperature: None,
+                top_p: None,
+            },
+            prompt: None,
+            use_template: false,
+            multimodal: true,
+        }),
+    };
+    match args.command {
         Generate(args) => args.generate(),
         Chat(args) => args.chat(),
         Service(args) => args.service(),

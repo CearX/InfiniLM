@@ -1,0 +1,67 @@
+{
+    // 使用 IntelliSense 了解相关属性。
+    // 悬停以查看现有属性的描述。
+    // 欲了解更多信息，请访问: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'llama_cu'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=llama-cu"
+                ],
+                "filter": {
+                    "name": "llama_cu",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'xtask'",
+            "env": {
+                "LD_LIBRARY_PATH": "/home/cearx/qy/other/InfiniLM/target/debug/build/llama-cu-3610757795ca8e68/out",
+            },
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=xtask",
+                    "--package=xtask"
+                ],
+                "filter": {
+                    "name": "xtask",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'xtask'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=xtask",
+                    "--package=xtask"
+                ],
+                "filter": {
+                    "name": "xtask",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}
