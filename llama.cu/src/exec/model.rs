@@ -3,7 +3,7 @@ use crate::{
     batch::Req,
     handle::Handle,
     memory::MemPages,
-    utils::{self, destruct},
+    utils::{self, destruct, fmt},
 };
 use bytesize::ByteSize;
 use log::trace;
@@ -147,7 +147,12 @@ impl ModelExec<'_> {
                     handle.launch_rearrange(rearr.unwrap(), box_, reqs, stream)
                 }
                 Step::Conv(box_) => handle.launch_conv(conv.unwrap(), box_, reqs, stream),
-                Step::Exec(exec) => handle.launch_nn_exec(exec, stream),
+                Step::Exec(exec) => {
+                    handle.launch_nn_exec(exec, stream);
+                    if exec.node.name == "merger" {
+                        utils::fmt(&exec.outputs[0], stream.ctx())
+                    }
+                }
             }
         }
         destruct!([x] = self.outputs.clone());
