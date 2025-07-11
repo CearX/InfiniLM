@@ -100,7 +100,7 @@ impl<'ctx> Handle<'ctx> {
                 exec_.push(Step::Attention(Box::new(Attention { iblk, q, k, v, o })));
                 continue;
             }
-            if exec.node.value.name == "rearrange" {
+            if exec.node.value.name == "merge" {
                 if let Some(stream) = stream.take() {
                     exec_.push(Step::Graph(
                         self.ctx.instantiate(&stream.end()),
