@@ -29,12 +29,6 @@ impl Operator for Add {
         // 检查类型
         let dt = y.dt();
         assert_eq!(x.dt(), dt);
-        if b.dt() != dt {
-            println!("n, d: {}, {}", n, d);
-            println!("y.dt {}", x.dt());
-            println!("x.dt {}", x.dt());
-            println!("b.dt {}", b.dt());
-        }
         assert_eq!(b.dt(), dt);
         // 获取 stride
         strides!([sny, sdy] = y);

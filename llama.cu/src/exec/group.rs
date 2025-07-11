@@ -76,7 +76,7 @@ impl<'ctx> ModelGroup<'ctx> {
                         inner.tensor_parallel(dist),
                         [
                             TensorMeta::new(
-                                types::U32,
+                                types::F16,
                                 ["n_img".into(), 3.into(), "h_img".into(), "w_img".into()],
                             ),
                             TensorMeta::new(types::U32, ["patches".into(), 2.into()]),

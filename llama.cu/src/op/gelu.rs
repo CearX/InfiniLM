@@ -75,7 +75,7 @@ fn code(dt: DigitLayout) -> String {
 
 extern "C" __global__ void gelu(
     {dt} *__restrict__ out,
-    {dt} const *__restrict__ data,
+    {dt} const *__restrict__ data
 ){{
     kernel(out, data);
 }}"#
