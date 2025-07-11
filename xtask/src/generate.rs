@@ -50,7 +50,7 @@ impl GenerateArgs {
                 session,
                 &service.terminal().tokenize(&prompt),
                 max_steps,
-                Some(get_image()),
+                None,
             );
 
             // qw2vl todo

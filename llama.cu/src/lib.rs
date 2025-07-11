@@ -134,7 +134,9 @@ impl Service {
                 engine(LLAMA(llama), &workers, commands, outputs, use_cuda_grpah)
             }
         });
-        once.wait();
+        if !multimodal {
+            once.wait();
+        }
         Self {
             handle: Some((receiver, handle)),
             ready: false,
