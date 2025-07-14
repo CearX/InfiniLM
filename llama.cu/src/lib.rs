@@ -79,6 +79,7 @@ struct ModelComponents {
 impl Service {
     pub fn new(
         model: impl AsRef<Path>,
+        llama: impl AsRef<Path>,
         gpus: &[c_int],
         use_cuda_grpah: bool,
         multimodal: bool,
@@ -89,6 +90,7 @@ impl Service {
         let (sender, commands) = mpsc::channel();
         // 从文件加载权重
         let maps = map_files(model);
+        let maps_llama = map_files(llama);
         let progress = gpus
             .iter()
             .map(|x| (*x, Arc::new(Progress::default())))
@@ -105,6 +107,20 @@ impl Service {
             let mut gguf = GGufModel::read(maps.iter().map(|x| &**x));
             if multimodal {
                 gguf.insert_sin_cos_qw2vl();
+
+                let gguf_llama = GGufModel::read(maps_llama.iter().map(|x| &**x));
+                let tokenizer = Bpe::from_gguf(&gguf_llama);
+                let chat_template = gguf_llama.chat_template(&tokenizer);
+                let cache_template = gguf_llama.kv_cache();
+                let eos = meta![gguf_llama => tokenizer_ggml_eos_token_id];
+
+                once_.get_or_init(|| ModelComponents {
+                    tokenizer,
+                    chat_template,
+                    cache_template,
+                    eos,
+                });
+                drop(once_);
 
                 let qw2 = gguf.qw2vl_mmproj();
                 engine(
@@ -134,9 +150,10 @@ impl Service {
                 engine(LLAMA(llama), &workers, commands, outputs, use_cuda_grpah)
             }
         });
-        if !multimodal {
-            once.wait();
-        }
+        once.wait();
+        // if !multimodal {
+        //     once.wait();
+        // }
         Self {
             handle: Some((receiver, handle)),
             ready: false,
@@ -303,6 +320,19 @@ impl Terminal {
             len: 0,
         }
     }
+    pub fn new_cache_qw2vl(&self) -> Cache<CacheParts> {
+        let template = &self.components.wait().cache_template;
+        let parts = &self.cache_parts;
+        let total = parts.iter().map(|(_, len)| len).sum::<usize>();
+        let parts = parts
+            .iter()
+            .map(|(dev, len)| KVCache::new(template, *len, total, &MemPages::new(*dev)));
+        Cache {
+            cache: CacheParts(parts.map(Mutex::new).collect()),
+            capacity: template.shape()[0],
+            len: 0,
+        }
+    }
 
     pub fn render(&self, msgs: &[Message]) -> String {
         self.components
@@ -336,6 +366,34 @@ impl Terminal {
             }))
             .is_ok()
     }
+
+    // pub fn start_qw2vl(
+    //     &self,
+    //     prompt: &str,
+    //     max_steps: usize,
+    //     image: Option<Tensor<Vec<u8>, 2>>,
+    // ) -> bool {
+    //     use crate::{SampleArgs, Session, SessionId};
+    //     // 构造一个dummy session，cache字段随便填
+    //     let session = Session {
+    //         id: SessionId(0),
+    //         sample_args: SampleArgs::default(),
+    //         cache: Cache {
+    //             cache: 0,
+    //             capacity: 0,
+    //             len: 0,
+    //         }, // 或者用 Option<()>、0、空struct等
+    //     };
+    //     self.sender
+    //         .send(Command::Insert(Request {
+    //             session,
+    //             prompt: Box::new([]), // 或直接传prompt字符串，具体看engine实现
+    //             out: 1,
+    //             max_steps,
+    //             image: None,
+    //         }))
+    //         .is_ok()
+    // }
 
     pub fn stop(&self, id: SessionId) -> bool {
         self.sender.send(Command::Remove(id)).is_ok()

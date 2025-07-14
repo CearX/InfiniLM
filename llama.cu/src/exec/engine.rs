@@ -18,6 +18,7 @@ use operators::{
     attention_kv_cached::cuda::Operator as AttnKv,
     conv::cuda::ConvIm2Col,
     cuda::{ContextResource, CurrentCtx, Device, Event, Gpu, HostMem},
+    rearrange::cuda::Operator as Rearr,
 };
 use std::{
     ffi::c_int,
@@ -393,6 +394,7 @@ impl<T: IntoIterator<Item = usize>> Worker<T> {
         let gpu = Gpu::new(dev.retain_primary(), Default::default());
         let attn = Attn::new(&gpu);
         let conv = ConvIm2Col::new(&gpu);
+        let rearr = Rearr::new(&gpu);
         gpu.apply(|ctx| {
             let mut manager = EngineManager::new(chunked_prefill_len, max_toks);
             let mut handle = handle(ctx);
@@ -403,7 +405,7 @@ impl<T: IntoIterator<Item = usize>> Worker<T> {
                 config,
                 AttnType::ATTN(attn),
                 Some(&conv),
-                None,
+                Some(&rearr),
                 &mut handle,
                 barrier.as_deref(),
             );
@@ -414,10 +416,12 @@ impl<T: IntoIterator<Item = usize>> Worker<T> {
 
             let stream = ctx.stream();
             let len = max_toks;
+            let image_len = 1 * 3 * 336 * 476 * 2;
+            let pos_len = 24 * 34 * 2 * 4;
             const BUF_LEVEL: usize = 3;
             let mut events: [Event; BUF_LEVEL] = std::array::from_fn(|_| stream.record());
-            let mut image_buf = BufN::<u8>::new(len, BUF_LEVEL, ctx);
-            let mut pos_buf = BufN::<upos>::new(len, BUF_LEVEL, ctx);
+            let mut image_buf = BufN::<u8>::new(image_len, BUF_LEVEL, ctx);
+            let mut pos_buf = BufN::<upos>::new(pos_len, BUF_LEVEL, ctx);
             let mut out_idx_buf = BufN::<utok>::new(len, BUF_LEVEL, ctx);
             // let mut fast_embd_buf = BufN::<(utok, utok)>::new(len, BUF_LEVEL, ctx);
 
@@ -455,6 +459,7 @@ impl<T: IntoIterator<Item = usize>> Worker<T> {
                     // let image = image.unwrap();
                     let shape = image.shape().to_vec();
                     assert_eq!(shape.len(), 4);
+                    println!("shape: {:?}", shape);
                     let h = shape[2];
                     let w = shape[3];
                     let image = image.take();
@@ -471,6 +476,7 @@ impl<T: IntoIterator<Item = usize>> Worker<T> {
                     let (key, tok) = models.load_inputs_qw2vl_mmproj(
                         &mut handle,
                         image.len(),
+                        pos_ids.len(),
                         &image_buf,
                         &pos_buf,
                         &stream,
@@ -494,7 +500,9 @@ impl<T: IntoIterator<Item = usize>> Worker<T> {
                         models.share_inputs(key, &mut handle, &stream);
                     }
                     // 推理
+                    println!("launch!");
                     let x = models.launch(key, &reqs, &mut handle, &stream);
+                    println!("end!");
 
                     // 如果没有输出，则跳过
                     if !out_idx.is_empty() {

@@ -150,6 +150,7 @@ impl<'ctx> ModelGroup<'ctx> {
         &mut self,
         handle: &mut Handle<'ctx>,
         len: usize,
+        pos_len: usize,
         tok: &[u8],
         pos: &[upos],
         stream: &Stream<'ctx>,
@@ -157,7 +158,7 @@ impl<'ctx> ModelGroup<'ctx> {
         let key = self.internal.get_key(NonZeroUsize::new(len).unwrap());
         let model = self.internal.map_exec(key, handle, &mut self.pages, stream);
         stream.memcpy_h2d(model.tok_buf(), &tok[..key.get()]);
-        stream.memcpy_h2d(model.pos_buf(), &pos[..key.get()]);
+        stream.memcpy_h2d(model.pos_buf(), &pos[..pos_len]);
         (key, model.tok_buf())
     }
 

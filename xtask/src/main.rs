@@ -36,6 +36,8 @@ fn main() {
         command: Commands::Generate(generate::GenerateArgs {
             base: BaseArgs {
                 model: "/home/cearx/qy/model/Qwen2VLnn-mmproj-2B-Instruct-v2.0-F16.gguf".into(),
+                llama: "/home/cearx/llm.c2/new/cearx/devvv/TinyLlama-1.1B-Chat-v1.0-F16.gguf"
+                    .into(),
                 gpus: None,
                 max_steps: None,
                 no_cuda_graph: false,
@@ -45,6 +47,7 @@ fn main() {
             prompt: None,
             use_template: false,
             multimodal: true,
+            // multimodal: false,
         }),
     };
     match args.command {
@@ -78,6 +81,7 @@ enum Commands {
 #[derive(Args)]
 struct BaseArgs {
     model: PathBuf,
+    llama: PathBuf,
     #[clap(long)]
     gpus: Option<String>,
     #[clap(long)]

@@ -60,6 +60,7 @@ impl Model {
 
         let mut service = Service::new(
             path,
+            "none".to_string(),
             &gpus.unwrap_or(Box::new([0])),
             use_cuda_graph,
             multimodal.unwrap_or(false),

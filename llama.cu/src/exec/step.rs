@@ -4,13 +4,13 @@
     op::{self, Operator as _},
     utils::{destruct, layout, offset_ptr},
 };
+use ndarray_layout::{ArrayLayout, Endian};
 use nn::{Arg, Named, Tensor};
 use operators::{
-    Operator as _,
+    Operator as _, TensorLayout,
     attention::Args as AttnArgs,
     attention_kv_cached::Args as AttnKvArgs,
-    conv::Args as ConvArgs,
-    conv::cuda::ConvIm2Col,
+    conv::{Args as ConvArgs, cuda::ConvIm2Col},
     cuda::{CaptureStream, GraphExec, Stream, VirByte},
     rearrange::{Args as RearrArgs, cuda::Operator as Rearr},
 };
@@ -339,7 +339,11 @@ impl<'ctx> Handle<'ctx> {
         let Rearrange { dst, src } = rearrange;
         op.launch(
             &RearrArgs {
-                dst_layout: layout(dst),
+                dst_layout: TensorLayout {
+                    dt: src.dt(),
+                    layout: ArrayLayout::<2>::new_contiguous(src.shape(), Endian::BigEndian, 2)
+                        .to_inline_size(),
+                },
                 dst_base: offset_ptr(dst).cast_mut().cast(),
                 src_layout: layout(src),
                 src_base: offset_ptr(src).cast(),

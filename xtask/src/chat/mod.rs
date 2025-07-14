@@ -23,7 +23,7 @@ impl ChatArgs {
         let max_steps = base.max_steps();
         let sample_args = base.sample_args();
 
-        let mut service = Service::new(base.model, &gpus, !base.no_cuda_graph, false);
+        let mut service = Service::new(base.model, base.llama, &gpus, !base.no_cuda_graph, false);
         progress_bar(&mut service);
 
         if !advanced {

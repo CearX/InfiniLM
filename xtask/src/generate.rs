@@ -32,28 +32,46 @@ impl GenerateArgs {
             prompt.unwrap_or("Once upon a time,".into())
         };
 
-        let mut service = Service::new(base.model, &gpus, !base.no_cuda_graph, multimodal);
+        let mut service = Service::new(
+            base.model,
+            base.llama,
+            &gpus,
+            !base.no_cuda_graph,
+            multimodal,
+        );
         progress_bar(&mut service);
 
-        let session = Session {
-            id: SessionId(0),
-            sample_args,
-            cache: service.terminal().new_cache(),
-        };
-        print_now!("{prompt}");
-        if use_template {
-            prompt = service.terminal().render(&[Message::user(&prompt)])
-        }
         if multimodal {
+            let session = Session {
+                id: SessionId(0),
+                sample_args,
+                cache: service.terminal().new_cache(),
+            };
+            print_now!("{prompt}");
+            if use_template {
+                prompt = service.terminal().render(&[Message::user(&prompt)])
+            }
+
             service.terminal().start(
                 session,
                 &service.terminal().tokenize(&prompt),
                 max_steps,
                 None,
             );
+            print_now!("start!");
 
             // qw2vl todo
         } else {
+            let session = Session {
+                id: SessionId(0),
+                sample_args,
+                cache: service.terminal().new_cache(),
+            };
+            print_now!("{prompt}");
+            if use_template {
+                prompt = service.terminal().render(&[Message::user(&prompt)])
+            }
+
             service.terminal().start(
                 session,
                 &service.terminal().tokenize(&prompt),
