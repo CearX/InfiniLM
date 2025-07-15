@@ -339,6 +339,7 @@ impl<'ctx> Handle<'ctx> {
         let Rearrange { dst, src } = rearrange;
         op.launch(
             &RearrArgs {
+                // dst_layout: layout(dst),
                 dst_layout: TensorLayout {
                     dt: src.dt(),
                     layout: ArrayLayout::<2>::new_contiguous(src.shape(), Endian::BigEndian, 2)
