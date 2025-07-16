@@ -1,4 +1,5 @@
-﻿pub mod engine;
+﻿mod encoder;
+pub mod engine;
 mod engine_manager;
 mod group;
 mod kv_cache;

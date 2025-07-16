@@ -132,6 +132,7 @@ impl ModelExec<'_> {
     ) -> Tensor<*const VirByte, 2> {
         // 执行
         for exec in &self.execs {
+            stream.synchronize();
             match exec {
                 Step::Graph(graph, stub) => {
                     stream.launch_graph(graph);
@@ -142,16 +143,24 @@ impl ModelExec<'_> {
                         std::process::exit(0);
                     }
                 }
-                Step::Attention(box_) => handle.launch_attn(attn, box_, reqs, stream),
+                Step::Attention(box_) => {
+                    // println!("Attention");
+                    handle.launch_attn(attn, box_, reqs, stream)
+                }
                 Step::Rearrange(box_) => {
+                    // println!("Rearrange & Merge");
                     handle.launch_rearrange(rearr.unwrap(), box_, reqs, stream)
                 }
-                Step::Conv(box_) => handle.launch_conv(conv.unwrap(), box_, reqs, stream),
+                Step::Conv(box_) => {
+                    // println!("Conv");
+                    handle.launch_conv(conv.unwrap(), box_, reqs, stream)
+                }
                 Step::Exec(exec) => {
                     handle.launch_nn_exec(exec, stream);
-                    if exec.node.name == "merger" {
-                        utils::fmt(&exec.outputs[0], stream.ctx())
-                    }
+                    // println!("{}", exec.node.name);
+                    // if exec.node.name == "Ω.merger.mlp.ffn-down:linear" {
+                    //     utils::fmt(&exec.outputs[0], stream.ctx())
+                    // }
                 }
             }
         }

@@ -504,31 +504,38 @@ impl<T: IntoIterator<Item = usize>> Worker<T> {
                     let x = models.launch(key, &reqs, &mut handle, &stream);
                     println!("end!");
 
-                    // 如果没有输出，则跳过
-                    if !out_idx.is_empty() {
-                        let output = output
-                            .into_iter()
-                            .filter_map(|(id, len)| if len > 0 { Some((id, len)) } else { None })
-                            .collect::<Vec<_>>();
-                        // let kv_pairs = output_head.launch(
-                        //     x,
-                        //     &out_idx_buf[..out_idx.len()],
-                        //     sample,
-                        //     &mut handle,
-                        //     &stream,
-                        // );
-                        // stream.memcpy_d2d(&mut pre_kv_pairs[..kv_pairs.len()], &kv_pairs);
+                    let output = Output::Complete {
+                        output: output.into(),
+                        kv_pair: None,
+                        event: stream.record().sporulate(),
+                        finished: finished.into(),
+                    };
 
-                        let output = Output::Complete {
-                            output: output.into(),
-                            kv_pair: None,
-                            event: stream.record().sporulate(),
-                            finished: finished.into(),
-                        };
-                        if outputs.send(output).is_err() {
-                            break;
-                        }
-                    }
+                    // // 如果没有输出，则跳过
+                    // if !out_idx.is_empty() {
+                    //     let output = output
+                    //         .into_iter()
+                    //         .filter_map(|(id, len)| if len > 0 { Some((id, len)) } else { None })
+                    //         .collect::<Vec<_>>();
+                    //     // let kv_pairs = output_head.launch(
+                    //     //     x,
+                    //     //     &out_idx_buf[..out_idx.len()],
+                    //     //     sample,
+                    //     //     &mut handle,
+                    //     //     &stream,
+                    //     // );
+                    //     // stream.memcpy_d2d(&mut pre_kv_pairs[..kv_pairs.len()], &kv_pairs);
+
+                    //     let output = Output::Complete {
+                    //         output: output.into(),
+                    //         kv_pair: None,
+                    //         event: stream.record().sporulate(),
+                    //         finished: finished.into(),
+                    //     };
+                    //     if outputs.send(output).is_err() {
+                    //         break;
+                    //     }
+                    // }
                 }
             }
             // 通知协处理单元退出
@@ -610,7 +617,7 @@ fn out_idx<T>(reqs: &[Req<T>], outs: impl IntoIterator<Item = usize>) -> Vec<uto
     out_idx
 }
 
-struct BufN<'ctx, T> {
+pub(crate) struct BufN<'ctx, T> {
     buf: HostMem<'ctx>,
     index: usize,
     level: usize,
@@ -618,7 +625,7 @@ struct BufN<'ctx, T> {
 }
 
 impl<'ctx, T: Copy> BufN<'ctx, T> {
-    fn new(len: usize, level: usize, ctx: &'ctx CurrentCtx) -> Self {
+    pub(crate) fn new(len: usize, level: usize, ctx: &'ctx CurrentCtx) -> Self {
         Self {
             buf: ctx.malloc_host::<T>(len * level),
             index: 0,
@@ -629,7 +636,7 @@ impl<'ctx, T: Copy> BufN<'ctx, T> {
 }
 
 impl<T: Copy> BufN<'_, T> {
-    fn save(&mut self, data: &[T]) {
+    pub(crate) fn save(&mut self, data: &[T]) {
         let data = unsafe { std::slice::from_raw_parts(data.as_ptr().cast(), size_of_val(data)) };
 
         if self.index + 1 == self.level {

@@ -25,37 +25,37 @@ extern crate clap;
 fn main() {
     logger::init();
     use Commands::*;
-    // match Cli::parse().command {
-    //     Generate(args) => args.generate(),
-    //     Chat(args) => args.chat(),
-    //     Service(args) => args.service(),
-    //     Bench(args) => args.bench(),
-    // }
-    // 手动设置命令行参数
-    let args = Cli {
-        command: Commands::Generate(generate::GenerateArgs {
-            base: BaseArgs {
-                model: "/home/cearx/qy/model/Qwen2VLnn-mmproj-2B-Instruct-v2.0-F16.gguf".into(),
-                llama: "/home/cearx/llm.c2/new/cearx/devvv/TinyLlama-1.1B-Chat-v1.0-F16.gguf"
-                    .into(),
-                gpus: None,
-                max_steps: None,
-                no_cuda_graph: false,
-                temperature: None,
-                top_p: None,
-            },
-            prompt: None,
-            use_template: false,
-            multimodal: true,
-            // multimodal: false,
-        }),
-    };
-    match args.command {
+    match Cli::parse().command {
         Generate(args) => args.generate(),
         Chat(args) => args.chat(),
         Service(args) => args.service(),
         Bench(args) => args.bench(),
     }
+    // 手动设置命令行参数
+    // let args = Cli {
+    //     command: Commands::Generate(generate::GenerateArgs {
+    //         base: BaseArgs {
+    //             model: "/home/cearx/qy/model/Qwen2VLnn-mmproj-2B-Instruct-v2.0-F16.gguf".into(),
+    //             llama: "/home/cearx/llm.c2/new/cearx/devvv/TinyLlama-1.1B-Chat-v1.0-F16.gguf"
+    //                 .into(),
+    //             gpus: None,
+    //             max_steps: None,
+    //             no_cuda_graph: true,
+    //             temperature: None,
+    //             top_p: None,
+    //         },
+    //         prompt: None,
+    //         use_template: false,
+    //         multimodal: true,
+    //         // multimodal: false,
+    //     }),
+    // };
+    // match args.command {
+    //     Generate(args) => args.generate(),
+    //     Chat(args) => args.chat(),
+    //     Service(args) => args.service(),
+    //     Bench(args) => args.bench(),
+    // }
 }
 
 #[derive(Parser)]

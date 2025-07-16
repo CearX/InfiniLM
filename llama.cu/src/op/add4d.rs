@@ -65,11 +65,12 @@ impl Operator for Add4d {
             (swb / unit) as c_int
         ];
         // 计算线程块配置
-        let block = gcd(max_threads_block, wp);
+        assert!(wp <= max_threads_block);
         // 启动内核
+        // gridDim = (n, m, hp)
         stream.launch(
             &kernel,
-            ((n as c_uint, m as c_uint, hp as c_uint), block as c_uint, 0),
+            ((hp as c_uint, m as c_uint, n as c_uint), wp as c_uint, 0),
             &params.to_ptrs(),
         );
     }

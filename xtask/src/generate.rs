@@ -59,6 +59,7 @@ impl GenerateArgs {
                 None,
             );
             print_now!("start!");
+            std::thread::sleep(Duration::from_secs(10));
 
             // qw2vl todo
         } else {
