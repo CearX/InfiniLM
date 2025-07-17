@@ -29,6 +29,8 @@ minijinja = { version = "2.10", default-features = false, features = [
     "builtins",
     "serde",
 ] }
+image = "0.25.6"
+ndarray = "0.16.1"
 
 [build-dependencies]
 bindgen = { version = "0.71" }
