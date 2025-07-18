@@ -3,27 +3,48 @@ use clip::{Image, qwen2vl_image_preprocess};
 use half::f16;
 use image::{DynamicImage, GenericImageView};
 use mem_rearrange::Rearranging;
-use ndarray::Array3;
+use ndarray::{Array3, Array4, Axis};
 use ndarray_layout::{ArrayLayout, Endian};
 use nn::{Tensor, digit_layout::types};
-/// 返回标准化后的Array3<f16> (NCHW)
-pub fn preprocess_image_for_infer(img: &DynamicImage, image_size: u32) -> Array3<f16> {
+
+/// 合成图片预处理，返回标准化后的 Array4<f16>
+pub fn preprocess_image_for_qw2vl(img: &DynamicImage, image_size: u32) -> Array4<f16> {
+    let (in_w, in_h) = img.dimensions();
+    let patch_size = 14;
+    let factor = patch_size * 2;
+    let out_w = ((in_w + factor - 1) / factor) * factor;
+    let out_h = ((in_h + factor - 1) / factor) * factor;
+    let rgb = img.to_rgb8();
+    let resized = bicubic_resize(&rgb, out_w, out_h);
     let config = PreprocessConfig {
         image_size,
         ..Default::default()
     };
-    preprocess_f16(img, &config)
+    let arr = normalize(&resized, config.mean, config.std); // (3, H, W)
+    let arr_f16 = arr.mapv(|x| f16::from_f32(x));
+    arr_f16.insert_axis(Axis(0)) // (1, 3, H, W)
 }
 
-pub fn qw2vl_image_preprocess_for_test() -> Array3<f32> {
+// 修改原有函数返回类型为 Array4 并适配
+/// 返回标准化后的Array4<f16> (NCHW)
+pub fn preprocess_image_for_infer(img: &DynamicImage, image_size: u32) -> Array4<f16> {
+    let config = PreprocessConfig {
+        image_size,
+        ..Default::default()
+    };
+    let arr = preprocess_f16(img, &config); // (3, H, W)
+    arr.insert_axis(Axis(0))
+}
+
+pub fn qw2vl_image_preprocess_for_test() -> Array4<f32> {
     let Some(picture) = test_utils::image() else {
         panic!("No test image found");
     };
     let buf = std::fs::read(&picture).expect("Failed to read image file");
     let img = image::load_from_memory(&buf).expect("Failed to load image");
-    // let img = image::load_from_memory(&picture).expect("Failed to load image");
     let config = PreprocessConfig::default();
-    preprocess(&img, &config)
+    let arr = preprocess(&img, &config);
+    arr.insert_axis(Axis(0))
 }
 
 pub fn qw2vl_image_preprocess() -> Tensor<Vec<u8>, 2> {
@@ -77,7 +98,7 @@ fn test_qwen2vl_image_preprocess() {
     println!("image tensor: {image:?}");
 }
 
-pub fn preprocess_with_patch_align(img: &DynamicImage, config: &PreprocessConfig) -> Array3<f32> {
+pub fn preprocess_with_patch_align(img: &DynamicImage, config: &PreprocessConfig) -> Array4<f32> {
     let (in_w, in_h) = img.dimensions();
     let patch_size = 14;
     let factor = patch_size * 2;
@@ -85,5 +106,6 @@ pub fn preprocess_with_patch_align(img: &DynamicImage, config: &PreprocessConfig
     let out_h = ((in_h + factor - 1) / factor) * factor;
     let rgb = img.to_rgb8();
     let resized = bicubic_resize(&rgb, out_w, out_h);
-    normalize(&resized, config.mean, config.std)
+    let arr = normalize(&resized, config.mean, config.std);
+    arr.insert_axis(Axis(0))
 }

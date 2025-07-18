@@ -31,7 +31,18 @@ pub fn preprocess_f16(img: &DynamicImage, config: &PreprocessConfig) -> Array3<f
     arr.mapv(|x| f16::from_f32(x))
 }
 
-pub(crate) fn bicubic_resize(input: &RgbImage, out_w: u32, out_h: u32) -> RgbImage {
+fn cubic_kernel(x: f32) -> f32 {
+    let abs_x = x.abs();
+    if abs_x < 1.0 {
+        (1.5 * abs_x.powi(3)) - (2.5 * abs_x.powi(2)) + 1.0
+    } else if abs_x < 2.0 {
+        (-0.5 * abs_x.powi(3)) + (2.5 * abs_x.powi(2)) - (4.0 * abs_x) + 2.0
+    } else {
+        0.0
+    }
+}
+
+pub fn bicubic_resize(input: &RgbImage, out_w: u32, out_h: u32) -> RgbImage {
     let (in_w, in_h) = input.dimensions();
     let mut out = RgbImage::new(out_w, out_h);
     for y in 0..out_h {
@@ -72,18 +83,7 @@ pub(crate) fn bicubic_resize(input: &RgbImage, out_w: u32, out_h: u32) -> RgbIma
     out
 }
 
-fn cubic_kernel(x: f32) -> f32 {
-    let abs_x = x.abs();
-    if abs_x < 1.0 {
-        (1.5 * abs_x.powi(3)) - (2.5 * abs_x.powi(2)) + 1.0
-    } else if abs_x < 2.0 {
-        (-0.5 * abs_x.powi(3)) + (2.5 * abs_x.powi(2)) - (4.0 * abs_x) + 2.0
-    } else {
-        0.0
-    }
-}
-
-pub(crate) fn normalize(img: &RgbImage, mean: [f32; 3], std: [f32; 3]) -> Array3<f32> {
+pub fn normalize(img: &RgbImage, mean: [f32; 3], std: [f32; 3]) -> Array3<f32> {
     let (w, h) = img.dimensions();
     let mut arr = Array3::<f32>::zeros((3, h as usize, w as usize));
     for (x, y, pixel) in img.enumerate_pixels() {
