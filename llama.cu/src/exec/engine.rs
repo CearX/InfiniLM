@@ -9,7 +9,7 @@ use crate::{
     exec::{group::ModelGroupConfig, model::AttnType, upos},
     handle::Handle,
     op::{FastEmbedding, random_sample::KVPair},
-    qw2vl_image_preprocess,
+    qw2vl_image_preprocess, utils,
 };
 use nn::{Distribution, LLaMA, Qwen2VLmmproj, Tensor};
 use operators::{
@@ -506,6 +506,7 @@ impl<T: IntoIterator<Item = usize>> Worker<T> {
                     println!("launch!");
                     let x = models.launch(key, &reqs, &mut handle, &stream);
                     println!("end!");
+                    utils::fmt(&x, stream.ctx());
 
                     // let output = Output::Complete {
                     //     output: output.into(),

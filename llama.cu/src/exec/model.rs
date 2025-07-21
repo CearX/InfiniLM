@@ -160,9 +160,9 @@ impl ModelExec<'_> {
                 Step::Exec(exec) => {
                     handle.launch_nn_exec(exec, stream);
                     // println!("{}", exec.node.name);
-                    if exec.node.name == "Ω.merger.mlp.ffn-down:linear" {
-                        utils::fmt(&exec.outputs[0], stream.ctx())
-                    }
+                    // if exec.node.name == "Ω.merger.mlp.ffn-down:linear" {
+                    //     utils::fmt(&exec.outputs[0], stream.ctx())
+                    // }
                     // if exec.node.name == "Ω.blk0.attn:split-qkv" {
                     //     // utils::fmt(&exec.outputs[0], stream.ctx())
                     //     println!("Ω.blk0.attn:split-qkv");
