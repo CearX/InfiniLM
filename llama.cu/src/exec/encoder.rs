@@ -45,7 +45,7 @@ pub fn qw2vl_infer(
                 dyn_cache_size: 1,
                 use_cuda_graph,
             },
-            AttnType::ATTN(attn),
+            AttnType::Attn(attn),
             Some(&conv),
             Some(&rearr),
             &mut handle,

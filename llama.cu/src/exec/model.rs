@@ -9,6 +9,7 @@ use bytesize::ByteSize;
 use log::trace;
 use nn::{NNGraph, Tensor};
 use operators::{
+    attention::common_cpu::Operator as AttnCpu,
     attention::cuda::Operator as Attn,
     attention_kv_cached::cuda::Operator as AttnKv,
     conv::cuda::ConvIm2Col,
@@ -98,8 +99,9 @@ impl<'ctx> ModelExec<'ctx> {
 }
 
 pub enum AttnType {
-    ATTNKV(AttnKv),
-    ATTN(Attn),
+    AttnKv(AttnKv),
+    Attn(Attn),
+    AttnCpu(AttnCpu),
 }
 
 impl ModelExec<'_> {
@@ -145,7 +147,7 @@ impl ModelExec<'_> {
                 }
                 Step::Attention(box_) => {
                     // println!("Attention");
-                    handle.launch_attn(attn, box_, reqs, stream)
+                    handle.launch_attn(attn, rearr.unwrap(), box_, reqs, stream)
                 }
                 Step::Rearrange(box_) => {
                     // println!("Rearrange & Merge");
@@ -158,7 +160,17 @@ impl ModelExec<'_> {
                 Step::Exec(exec) => {
                     handle.launch_nn_exec(exec, stream);
                     // println!("{}", exec.node.name);
-                    // if exec.node.name == "Ω.merger.mlp.ffn-down:linear" {
+                    if exec.node.name == "Ω.merger.mlp.ffn-down:linear" {
+                        utils::fmt(&exec.outputs[0], stream.ctx())
+                    }
+                    // if exec.node.name == "Ω.blk0.attn:split-qkv" {
+                    //     // utils::fmt(&exec.outputs[0], stream.ctx())
+                    //     println!("Ω.blk0.attn:split-qkv");
+                    //     println!("q {:?}", &exec.outputs[0].strides());
+                    //     println!("k {:?}", &exec.outputs[1].strides());
+                    //     println!("v {:?}", &exec.outputs[2].strides());
+                    // }
+                    // if exec.node.name == "Ω.blk0.ffn.ffn-down:linear" {
                     //     utils::fmt(&exec.outputs[0], stream.ctx())
                     // }
                 }

@@ -2,7 +2,7 @@
     batch::Req,
     handle::Handle,
     op::{self, Operator as _},
-    utils::{destruct, layout, offset_ptr},
+    utils::{self, Blob, destruct, layout, offset_ptr},
 };
 use ndarray_layout::{ArrayLayout, Endian};
 use nn::{Arg, Named, Tensor};
@@ -11,11 +11,16 @@ use operators::{
     attention::Args as AttnArgs,
     attention_kv_cached::Args as AttnKvArgs,
     conv::{Args as ConvArgs, cuda::ConvIm2Col},
-    cuda::{CaptureStream, GraphExec, Stream, VirByte},
+    cuda::{CaptureStream, DevByte, GraphExec, Stream, VirByte, memcpy_d2h, memcpy_h2d},
     rearrange::{Args as RearrArgs, cuda::Operator as Rearr},
 };
 use regex::Regex;
-use std::{fmt, sync::LazyLock};
+use serde::de;
+use std::{
+    fmt,
+    ops::{Deref, DerefMut},
+    sync::LazyLock,
+};
 
 use super::model::AttnType;
 
@@ -79,6 +84,15 @@ impl<'ctx> Handle<'ctx> {
                 let Some(nn::Arg::Int(dh)) = op.arg else {
                     panic!()
                 };
+
+                // println!(
+                //     "tran_attn: q={:?}, k={:?}, v={:?}, o={:?}",
+                //     q.strides(),
+                //     k.strides(),
+                //     v.strides(),
+                //     o.strides()
+                // );
+
                 let dh = dh as usize;
                 // [n, nh * dh] -> [n, nh, dh] -> [nh, n, dh]
                 let transform = |t: Tensor<*const VirByte, 2>| {
@@ -92,7 +106,20 @@ impl<'ctx> Handle<'ctx> {
                 let k = transform(k);
                 let v = transform(v);
                 let o = transform(o);
-
+                // println!(
+                //     "step_attn: q={:?}, k={:?}, v={:?}, o={:?}",
+                //     q.shape(),
+                //     k.shape(),
+                //     v.shape(),
+                //     o.shape()
+                // );
+                // println!(
+                //     "step_attn: q={:?}, k={:?}, v={:?}, o={:?}",
+                //     q.strides(),
+                //     k.strides(),
+                //     v.strides(),
+                //     o.strides()
+                // );
                 let iblk = {
                     let (_, [iblk]) = REGEX.captures(&name).unwrap().extract();
                     iblk.parse().unwrap()
@@ -220,6 +247,7 @@ impl<'ctx> Handle<'ctx> {
     pub(super) fn launch_attn(
         &mut self,
         op: &AttnType,
+        rearr_op: &Rearr,
         attn: &Attention,
         reqs: &[Req<Tensor<*const VirByte, 2>>],
         stream: &Stream,
@@ -227,7 +255,8 @@ impl<'ctx> Handle<'ctx> {
         let Attention { iblk, q, k, v, o } = attn;
         let mut start = 0;
         match op {
-            AttnType::ATTNKV(op) => {
+            AttnType::AttnKv(op) => {
+                // println!("launch_attn: iblk={iblk}");
                 for req in reqs {
                     // [nkvh, 2, nctx, dh]
                     let cache = req.cache.clone();
@@ -236,11 +265,19 @@ impl<'ctx> Handle<'ctx> {
                     let v_cache = cache.clone().transform(|layout| layout.index(1, 1));
                     // [nh, n, dh]
                     let len = req.seq;
+                    // println!("launch_attn: len={len}");
                     let q = q.clone().transform(|layout| layout.slice(1, start, 1, len));
                     let k = k.clone().transform(|layout| layout.slice(1, start, 1, len));
                     let v = v.clone().transform(|layout| layout.slice(1, start, 1, len));
                     let o = o.clone().transform(|layout| layout.slice(1, start, 1, len));
                     start += len;
+                    println!(
+                        "launch_attn: q={:?}, k={:?}, v={:?}, o={:?}",
+                        q.strides(),
+                        k.strides(),
+                        v.strides(),
+                        o.strides()
+                    );
                     op.launch(
                         &AttnKvArgs {
                             q_layout: layout(&q),
@@ -263,33 +300,81 @@ impl<'ctx> Handle<'ctx> {
                     )
                     .unwrap()
                 }
+                // println!("start: {start}");
             }
-            AttnType::ATTN(op) => {
-                for req in reqs {
-                    // [nh, n, dh]
-                    let len = req.seq;
-                    let q = q.clone().transform(|layout| layout.slice(1, start, 1, len));
-                    let k = k.clone().transform(|layout| layout.slice(1, start, 1, len));
-                    let v = v.clone().transform(|layout| layout.slice(1, start, 1, len));
-                    let o = o.clone().transform(|layout| layout.slice(1, start, 1, len));
-                    start += len;
-                    op.launch(
-                        &AttnArgs {
-                            q_layout: layout(&q),
-                            q_base: offset_ptr(&q).cast_mut().cast(),
-                            k_layout: layout(&k),
-                            k_base: offset_ptr(&k).cast(),
-                            v_layout: layout(&v),
-                            v_base: offset_ptr(&v).cast(),
-                            o_layout: layout(&o),
-                            o_base: offset_ptr(&o).cast_mut().cast(),
-                            mask: operators::fuesd_softmax::AttnMask::None,
-                        },
-                        &mut [],
-                        stream,
-                    )
-                    .unwrap()
-                }
+            AttnType::Attn(_) => {}
+            AttnType::AttnCpu(op) => {
+                // println!(
+                //     "launch_attn: q={:?}, k={:?}, v={:?}, o={:?}",
+                //     q.shape(),
+                //     k.shape(),
+                //     v.shape(),
+                //     o.shape()
+                // );
+                // println!(
+                //     "launch_attn: q={:?}, k={:?}, v={:?}, o={:?}",
+                //     q.strides(),
+                //     k.strides(),
+                //     v.strides(),
+                //     o.strides()
+                // );
+
+                let d2h = |tensor: &Tensor<*const VirByte, 2>| {
+                    let mem_range = tensor.layout().data_range();
+                    let ptr = tensor.get().cast::<DevByte>();
+                    let len = *mem_range.end() as usize + tensor.dt().nbytes();
+                    let slice = unsafe { std::slice::from_raw_parts(ptr, len) };
+                    let mut host = Blob::new(len);
+                    memcpy_d2h(&mut host, slice);
+                    tensor.as_ref().map(|_| host)
+                };
+                let q_host = d2h(&q);
+                let k_host = d2h(&k);
+                let v_host = d2h(&v);
+                let o_host = d2h(&o);
+
+                let q_deref = q_host.as_deref();
+                let k_deref = k_host.as_deref();
+                let v_deref = v_host.as_deref();
+                let o_deref = o_host.as_deref();
+
+                let q_ = q_deref.as_ref().map(|t| t.as_ptr() as *const VirByte);
+                let k_ = k_deref.as_ref().map(|t| t.as_ptr() as *const VirByte);
+                let v_ = v_deref.as_ref().map(|t| t.as_ptr() as *const VirByte);
+                let o_ = o_deref.as_ref().map(|t| t.as_ptr() as *const VirByte);
+
+                // cpu cal
+                op.launch(
+                    &AttnArgs {
+                        q_layout: layout(&q),
+                        q_base: offset_ptr(&q_).cast_mut().cast(),
+                        k_layout: layout(&k),
+                        k_base: offset_ptr(&k_).cast(),
+                        v_layout: layout(&v),
+                        v_base: offset_ptr(&v_).cast(),
+                        o_layout: layout(&o),
+                        o_base: offset_ptr(&o_).cast_mut().cast(),
+                        mask: operators::fuesd_softmax::AttnMask::None,
+                    },
+                    &mut [],
+                    &operators::common_cpu::ThisThread,
+                )
+                .unwrap();
+
+                //  h2d o - 将CPU计算结果复制回原始设备内存
+                let mem_range = o_deref.layout().data_range();
+                let len = *mem_range.end() as usize + o_deref.dt().nbytes();
+                let host_slice = unsafe { std::slice::from_raw_parts(o_deref.get().as_ptr(), len) };
+
+                // 获取原始设备内存位置
+                let o_ptr = o.get().cast::<DevByte>().cast_mut();
+                let mut o_dev_slice = unsafe { std::slice::from_raw_parts_mut(o_ptr, len) };
+
+                // 复制CPU计算结果回设备
+                memcpy_h2d(&mut o_dev_slice, host_slice);
+
+                // utils::fmt(&o, stream.ctx());
+                // panic!();
             }
         }
     }

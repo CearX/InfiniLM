@@ -14,8 +14,10 @@ use crate::{
 use nn::{Distribution, LLaMA, Qwen2VLmmproj, Tensor};
 use operators::{
     Operator,
+    attention::common_cpu::Operator as AttnCpu,
     attention::cuda::Operator as Attn,
     attention_kv_cached::cuda::Operator as AttnKv,
+    common_cpu::Cpu,
     conv::cuda::ConvIm2Col,
     cuda::{ContextResource, CurrentCtx, Device, Event, Gpu, HostMem},
     rearrange::cuda::Operator as Rearr,
@@ -250,7 +252,7 @@ impl<T: IntoIterator<Item = usize>> Worker<T> {
                 dist,
                 progress,
                 config,
-                AttnType::ATTNKV(attn),
+                AttnType::AttnKv(attn),
                 None,
                 None,
                 &mut handle,
@@ -392,7 +394,8 @@ impl<T: IntoIterator<Item = usize>> Worker<T> {
 
         dev.set_mempool_threshold(u64::MAX);
         let gpu = Gpu::new(dev.retain_primary(), Default::default());
-        let attn = Attn::new(&gpu);
+        // let attn = Attn::new(&gpu);
+        let attn = AttnCpu::new(&Cpu);
         let conv = ConvIm2Col::new(&gpu);
         let rearr = Rearr::new(&gpu);
         gpu.apply(|ctx| {
@@ -403,7 +406,7 @@ impl<T: IntoIterator<Item = usize>> Worker<T> {
                 dist,
                 progress,
                 config,
-                AttnType::ATTN(attn),
+                AttnType::AttnCpu(attn),
                 Some(&conv),
                 Some(&rearr),
                 &mut handle,
@@ -504,38 +507,39 @@ impl<T: IntoIterator<Item = usize>> Worker<T> {
                     let x = models.launch(key, &reqs, &mut handle, &stream);
                     println!("end!");
 
-                    let output = Output::Complete {
-                        output: output.into(),
-                        kv_pair: None,
-                        event: stream.record().sporulate(),
-                        finished: finished.into(),
-                    };
+                    // let output = Output::Complete {
+                    //     output: output.into(),
+                    //     kv_pair: None,
+                    //     event: stream.record().sporulate(),
+                    //     finished: finished.into(),
+                    // };
+                    panic!();
 
-                    // // 如果没有输出，则跳过
-                    // if !out_idx.is_empty() {
-                    //     let output = output
-                    //         .into_iter()
-                    //         .filter_map(|(id, len)| if len > 0 { Some((id, len)) } else { None })
-                    //         .collect::<Vec<_>>();
-                    //     // let kv_pairs = output_head.launch(
-                    //     //     x,
-                    //     //     &out_idx_buf[..out_idx.len()],
-                    //     //     sample,
-                    //     //     &mut handle,
-                    //     //     &stream,
-                    //     // );
-                    //     // stream.memcpy_d2d(&mut pre_kv_pairs[..kv_pairs.len()], &kv_pairs);
+                    // 如果没有输出，则跳过
+                    if !out_idx.is_empty() {
+                        let output = output
+                            .into_iter()
+                            .filter_map(|(id, len)| if len > 0 { Some((id, len)) } else { None })
+                            .collect::<Vec<_>>();
+                        // let kv_pairs = output_head.launch(
+                        //     x,
+                        //     &out_idx_buf[..out_idx.len()],
+                        //     sample,
+                        //     &mut handle,
+                        //     &stream,
+                        // );
+                        // stream.memcpy_d2d(&mut pre_kv_pairs[..kv_pairs.len()], &kv_pairs);
 
-                    //     let output = Output::Complete {
-                    //         output: output.into(),
-                    //         kv_pair: None,
-                    //         event: stream.record().sporulate(),
-                    //         finished: finished.into(),
-                    //     };
-                    //     if outputs.send(output).is_err() {
-                    //         break;
-                    //     }
-                    // }
+                        let output = Output::Complete {
+                            output: output.into(),
+                            kv_pair: None,
+                            event: stream.record().sporulate(),
+                            finished: finished.into(),
+                        };
+                        if outputs.send(output).is_err() {
+                            break;
+                        }
+                    }
                 }
             }
             // 通知协处理单元退出

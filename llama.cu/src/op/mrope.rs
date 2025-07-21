@@ -26,19 +26,25 @@ impl Operator for MRope {
         //检查dim
         dims!([n, dh_mut_dhead] = x);
         dims!([n2, _dim] = pos); // dim 维 pos_ids
-        dims!([nctx, dh_2] = sin);
-        dims!([nctx2, dh_2_] = cos);
+        dims!([nctx, dh_4] = sin);
+        dims!([nctx2, dh_4_] = cos);
         dims!([n3, dh_mut_dhead_] = y);
 
         assert_eq!(n, n2);
         assert_eq!(n, n3);
         assert_eq!(dh_mut_dhead, dh_mut_dhead_);
-        assert_eq!(dh_2, dh_2_);
+        assert_eq!(dh_4, dh_4_);
         assert_eq!(nctx, nctx2);
 
-        let dh = dh_2 * 2;
+        let dh = dh_4 * 4;
         let d_head = dh_mut_dhead / dh;
         assert_eq!(dh_mut_dhead % dh, 0);
+        // println!("x: n: {}, dh_mut_dhead: {}", n, dh_mut_dhead); // 816, 1280
+        // println!("y: n: {}, dh_mut_dhead: {}", n3, dh_mut_dhead_); // 816, 1280
+        // println!("sin: nctx: {}, dh_4: {}", nctx, dh_4); // 34, 20
+        // println!("cos: nctx2: {}, dh_4_: {}", nctx2, dh_4_); // 34, 20
+        // println!("pos: n2: {}, _dim: {}", n2, _dim); // 816, 2
+        // println!("dh: {}, nh: {}", dh, d_head); // 80, 16
 
         //检查type
         let dt_t = x.dt();
@@ -51,6 +57,12 @@ impl Operator for MRope {
         //获取stride
         strides!([s_n_y, s_dh_mut_dhead_y] = y);
         strides!([s_n_x, s_dh_mut_dhead_x] = x);
+        // println!(
+        //     "mrope: y strides {:?}, x strides {:?}",
+        //     y.strides(),
+        //     x.strides()
+        // );
+
         let stride_token_y = (s_n_y / dt_t.nbytes() as isize) as i32;
         let stride_head_y = (s_dh_mut_dhead_y / dt_t.nbytes() as isize * dh as isize) as i32;
 
@@ -72,7 +84,11 @@ impl Operator for MRope {
             .find(|nhl| d_head % nhl == 0)
             .unwrap_or(1);
         let nh_h = d_head / nh_l;
-
+        // println!(
+        //     "max_nh_l: {}, max_threads_block: {}",
+        //     max_nh_l, max_threads_block
+        // ); // 16, 1024
+        // println!("nh_l: {}, nh_h: {}", nh_l, nh_h); // 16, 1
         let key = [
             ModuleKey::Text("mrope"),
             ModuleKey::Type(dt_t),
@@ -99,8 +115,8 @@ impl Operator for MRope {
         stream.launch(
             &kernel,
             (
-                (nh_h as c_uint, n as c_uint),
-                (dh_div_2 as c_uint, nh_l as c_uint),
+                (n as c_uint, nh_h as c_uint),
+                (nh_l as c_uint, dh_div_2 as c_uint),
                 0,
             ),
             &params.to_ptrs(),

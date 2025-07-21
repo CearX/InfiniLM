@@ -2512,6 +2512,7 @@ dependencies = [
  "cuda",
  "digit-layout",
  "fslock",
+ "gemm",
  "half",
  "itertools 0.14.0",
  "libloading",
