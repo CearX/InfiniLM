@@ -8,7 +8,7 @@ use crate::{
     },
     handle::Handle,
     model::build_pos_ids,
-    utils::meta,
+    utils::{self, meta},
 };
 use ggus::GGufMetaMapExt;
 use nn::{Distribution, Tensor};

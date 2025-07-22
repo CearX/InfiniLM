@@ -256,7 +256,6 @@ impl<'ctx> Handle<'ctx> {
         let mut start = 0;
         match op {
             AttnType::AttnKv(op) => {
-                // println!("launch_attn: iblk={iblk}");
                 for req in reqs {
                     // [nkvh, 2, nctx, dh]
                     let cache = req.cache.clone();
@@ -265,7 +264,6 @@ impl<'ctx> Handle<'ctx> {
                     let v_cache = cache.clone().transform(|layout| layout.index(1, 1));
                     // [nh, n, dh]
                     let len = req.seq;
-                    // println!("launch_attn: len={len}");
                     let q = q.clone().transform(|layout| layout.slice(1, start, 1, len));
                     let k = k.clone().transform(|layout| layout.slice(1, start, 1, len));
                     let v = v.clone().transform(|layout| layout.slice(1, start, 1, len));
@@ -300,25 +298,10 @@ impl<'ctx> Handle<'ctx> {
                     )
                     .unwrap()
                 }
-                // println!("start: {start}");
             }
             AttnType::Attn(_) => {}
             AttnType::AttnCpu(op) => {
-                // println!(
-                //     "launch_attn: q={:?}, k={:?}, v={:?}, o={:?}",
-                //     q.shape(),
-                //     k.shape(),
-                //     v.shape(),
-                //     o.shape()
-                // );
-                // println!(
-                //     "launch_attn: q={:?}, k={:?}, v={:?}, o={:?}",
-                //     q.strides(),
-                //     k.strides(),
-                //     v.strides(),
-                //     o.strides()
-                // );
-
+                // d2h
                 let d2h = |tensor: &Tensor<*const VirByte, 2>| {
                     let mem_range = tensor.layout().data_range();
                     let ptr = tensor.get().cast::<DevByte>();
@@ -328,20 +311,9 @@ impl<'ctx> Handle<'ctx> {
                     memcpy_d2h(&mut host, slice);
                     tensor.as_ref().map(|_| host)
                 };
-                let q_host = d2h(&q);
-                let k_host = d2h(&k);
-                let v_host = d2h(&v);
-                let o_host = d2h(&o);
-
-                let q_deref = q_host.as_deref();
-                let k_deref = k_host.as_deref();
-                let v_deref = v_host.as_deref();
-                let o_deref = o_host.as_deref();
-
-                let q_ = q_deref.as_ref().map(|t| t.as_ptr() as *const VirByte);
-                let k_ = k_deref.as_ref().map(|t| t.as_ptr() as *const VirByte);
-                let v_ = v_deref.as_ref().map(|t| t.as_ptr() as *const VirByte);
-                let o_ = o_deref.as_ref().map(|t| t.as_ptr() as *const VirByte);
+                let (q_host, k_host, v_host, o_host) = (d2h(&q), d2h(&k), d2h(&v), d2h(&o));
+                let [q_, k_, v_, o_] = [&q_host, &k_host, &v_host, &o_host]
+                    .map(|h| h.as_deref().map(|t| t.as_ptr() as *const VirByte));
 
                 // cpu cal
                 op.launch(
@@ -361,20 +333,16 @@ impl<'ctx> Handle<'ctx> {
                 )
                 .unwrap();
 
-                //  h2d o - 将CPU计算结果复制回原始设备内存
-                let mem_range = o_deref.layout().data_range();
-                let len = *mem_range.end() as usize + o_deref.dt().nbytes();
-                let host_slice = unsafe { std::slice::from_raw_parts(o_deref.get().as_ptr(), len) };
-
-                // 获取原始设备内存位置
-                let o_ptr = o.get().cast::<DevByte>().cast_mut();
-                let mut o_dev_slice = unsafe { std::slice::from_raw_parts_mut(o_ptr, len) };
-
-                // 复制CPU计算结果回设备
-                memcpy_h2d(&mut o_dev_slice, host_slice);
-
-                // utils::fmt(&o, stream.ctx());
-                // panic!();
+                // h2d
+                let h2d = |tensor: &Tensor<*const VirByte, 2>, host: &Tensor<*const VirByte, 2>| {
+                    let mem_range = tensor.layout().data_range();
+                    let ptr = tensor.get().cast::<DevByte>().cast_mut();
+                    let len = *mem_range.end() as usize + tensor.dt().nbytes();
+                    let host = unsafe { std::slice::from_raw_parts(host.get().cast::<u8>(), len) };
+                    let mut dev = unsafe { std::slice::from_raw_parts_mut(ptr, len) };
+                    memcpy_h2d(&mut dev, host);
+                };
+                h2d(&o, &o_);
             }
         }
     }
