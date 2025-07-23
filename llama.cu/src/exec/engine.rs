@@ -425,7 +425,7 @@ fn out_idx<T>(reqs: &[Req<T>], outs: impl IntoIterator<Item = usize>) -> Vec<uto
     out_idx
 }
 
-struct BufN<'ctx, T> {
+pub(crate) struct BufN<'ctx, T> {
     buf: HostMem<'ctx>,
     index: usize,
     level: usize,
@@ -433,7 +433,7 @@ struct BufN<'ctx, T> {
 }
 
 impl<'ctx, T: Copy> BufN<'ctx, T> {
-    fn new(len: usize, level: usize, ctx: &'ctx CurrentCtx) -> Self {
+    pub(crate) fn new(len: usize, level: usize, ctx: &'ctx CurrentCtx) -> Self {
         Self {
             buf: ctx.malloc_host::<T>(len * level),
             index: 0,
@@ -444,7 +444,7 @@ impl<'ctx, T: Copy> BufN<'ctx, T> {
 }
 
 impl<T: Copy> BufN<'_, T> {
-    fn save(&mut self, data: &[T]) {
+    pub(crate) fn save(&mut self, data: &[T]) {
         let data = unsafe { std::slice::from_raw_parts(data.as_ptr().cast(), size_of_val(data)) };
 
         if self.index + 1 == self.level {

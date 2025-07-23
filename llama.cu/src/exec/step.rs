@@ -2,21 +2,42 @@
     batch::Req,
     handle::Handle,
     op::{self, Operator as _},
-    utils::{destruct, layout, offset_ptr},
+    utils::{Blob, destruct, layout, offset_ptr},
 };
+use ndarray_layout::{ArrayLayout, Endian};
 use nn::{Arg, Named, Tensor};
 use operators::{
-    Operator as _,
+    Operator as _, TensorLayout,
+    attention::Args as AttnNoKvArgs,
+    attention::common_cpu::Operator as AttnCpu,
     attention_kv_cached::{Args as AttnArgs, cuda::Operator as Attn},
-    cuda::{CaptureStream, GraphExec, Stream, VirByte},
+    conv::{Args as ConvArgs, cuda::ConvIm2Col},
+    cuda::{CaptureStream, DevByte, GraphExec, Stream, VirByte, memcpy_d2h, memcpy_h2d},
+    rearrange::{Args as RearrArgs, cuda::Operator as Rearr},
 };
 use regex::Regex;
 use std::{fmt, sync::LazyLock};
 
+#[allow(dead_code)]
 pub(super) enum Step<'ctx> {
     Graph(GraphExec<'ctx>, Box<[Tensor<*const VirByte, 2>]>),
     Attention(Box<Attention>),
+    Rearrange(Box<Rearrange>),
+    Conv(Box<Conv>),
     Exec(nn::Exec<*const VirByte>),
+}
+
+pub(super) struct Rearrange {
+    pub dst: Tensor<*const VirByte, 2>,
+    pub src: Tensor<*const VirByte, 2>,
+}
+
+pub(super) struct Conv {
+    pub y: Tensor<*const VirByte, 2>,
+    pub x: Tensor<*const VirByte, 2>,
+    pub w: Tensor<*const VirByte, 2>,
+    pub b: Option<Tensor<*const VirByte, 2>>,
+    pub d_patch: usize,
 }
 
 pub(super) struct Attention {
@@ -79,6 +100,61 @@ impl<'ctx> Handle<'ctx> {
                 exec_.push(Step::Attention(Box::new(Attention { iblk, q, k, v, o })));
                 continue;
             }
+            if exec.node.value.name == "merge" {
+                if let Some(stream) = stream.take() {
+                    exec_.push(Step::Graph(
+                        self.ctx.instantiate(&stream.end()),
+                        Default::default(),
+                    ))
+                }
+
+                let nn::Exec {
+                    node: Named { name: _, value: _ },
+                    inputs,
+                    outputs,
+                } = exec;
+
+                destruct!([src] = inputs);
+                destruct!([dst] = outputs);
+
+                exec_.push(Step::Rearrange(Box::new(Rearrange { dst, src })));
+                continue;
+            }
+            if exec.node.value.name == "conv" {
+                if let Some(stream) = stream.take() {
+                    exec_.push(Step::Graph(
+                        self.ctx.instantiate(&stream.end()),
+                        Default::default(),
+                    ))
+                }
+
+                let nn::Exec {
+                    node: Named { name: _, value: op },
+                    inputs,
+                    outputs,
+                } = exec;
+
+                let Some(nn::Arg::Bool(bias)) = op.arg else {
+                    panic!()
+                };
+                let (x, w, b) = if bias {
+                    destruct!([x, w, b] = inputs);
+                    (x, w, Some(b))
+                } else {
+                    destruct!([x, w] = inputs);
+                    (x, w, None)
+                };
+                destruct!([y] = outputs);
+
+                exec_.push(Step::Conv(Box::new(Conv {
+                    y,
+                    x,
+                    w,
+                    b,
+                    d_patch: 14, // todo: from model
+                })));
+                continue;
+            }
             if use_cuda_graph {
                 self.launch_nn_exec(
                     &exec,
@@ -120,6 +196,7 @@ impl<'ctx> Handle<'ctx> {
             "rms-norm" => launch!(RmsNorm),
             "layer-norm" => launch!(LayerNorm),
             "linear" => launch!(Linear),
+            "add4d" => launch!(Add4d),
             "rope" => launch!(Rope),
             "mrope" => launch!(MRope),
             "gelu" => launch!(Gelu),
@@ -184,6 +261,125 @@ impl<'ctx> Handle<'ctx> {
             )
             .unwrap()
         }
+    }
+
+    pub(super) fn launch_attn_qw2vl(
+        &mut self,
+        op: &AttnCpu,
+        attn: &Attention,
+        _reqs: &[Req<Tensor<*const VirByte, 2>>],
+        _stream: &Stream,
+    ) {
+        let Attention {
+            iblk: _,
+            q,
+            k,
+            v,
+            o,
+        } = attn;
+
+        // d2h
+        let d2h = |tensor: &Tensor<*const VirByte, 2>| {
+            let mem_range = tensor.layout().data_range();
+            let ptr = tensor.get().cast::<DevByte>();
+            let len = *mem_range.end() as usize + tensor.dt().nbytes();
+            let slice = unsafe { std::slice::from_raw_parts(ptr, len) };
+            let mut host = Blob::new(len);
+            memcpy_d2h(&mut host, slice);
+            tensor.as_ref().map(|_| host)
+        };
+        let (q_host, k_host, v_host, o_host) = (d2h(q), d2h(k), d2h(v), d2h(o));
+        let [q_, k_, v_, o_] = [&q_host, &k_host, &v_host, &o_host]
+            .map(|h| h.as_deref().map(|t| t.as_ptr() as *const VirByte));
+
+        // cpu cal
+        op.launch(
+            &AttnNoKvArgs {
+                q_layout: layout(q),
+                q_base: offset_ptr(&q_).cast_mut().cast(),
+                k_layout: layout(k),
+                k_base: offset_ptr(&k_).cast(),
+                v_layout: layout(v),
+                v_base: offset_ptr(&v_).cast(),
+                o_layout: layout(o),
+                o_base: offset_ptr(&o_).cast_mut().cast(),
+                mask: operators::fuesd_softmax::AttnMask::None,
+            },
+            &mut [],
+            &operators::common_cpu::ThisThread,
+        )
+        .unwrap();
+
+        // h2d
+        let h2d = |tensor: &Tensor<*const VirByte, 2>, host: &Tensor<*const VirByte, 2>| {
+            let mem_range = tensor.layout().data_range();
+            let ptr = tensor.get().cast::<DevByte>().cast_mut();
+            let len = *mem_range.end() as usize + tensor.dt().nbytes();
+            let host = unsafe { std::slice::from_raw_parts(host.get().cast::<u8>(), len) };
+            let dev = unsafe { std::slice::from_raw_parts_mut(ptr, len) };
+            memcpy_h2d(dev, host);
+        };
+        h2d(o, &o_);
+    }
+
+    pub(super) fn launch_conv(
+        &mut self,
+        op: &ConvIm2Col,
+        conv: &Conv,
+        _reqs: &[Req<Tensor<*const VirByte, 2>>],
+        stream: &Stream,
+    ) {
+        let Conv {
+            y,
+            x,
+            w,
+            b,
+            d_patch,
+        } = conv;
+
+        op.launch(
+            &ConvArgs {
+                y_layout: layout(y),
+                y_base: offset_ptr(y).cast_mut().cast(),
+                x_layout: layout(x),
+                x_base: offset_ptr(x).cast(),
+                w_layout: layout(w),
+                w_base: offset_ptr(w).cast(),
+                b_layout: b.as_ref().map(layout),
+                b_base: b.as_ref().map(|b| offset_ptr(b).cast()),
+                strides: [*d_patch; 2],
+                dilations: [1; 2],
+                pads: [0; 4],
+            },
+            &mut [],
+            stream,
+        )
+        .unwrap()
+    }
+
+    pub(super) fn launch_rearrange(
+        &mut self,
+        op: &Rearr,
+        rearrange: &Rearrange,
+        _reqs: &[Req<Tensor<*const VirByte, 2>>],
+        stream: &Stream,
+    ) {
+        let Rearrange { dst, src } = rearrange;
+        op.launch(
+            &RearrArgs {
+                dst_layout: TensorLayout {
+                    dt: src.dt(),
+                    layout: ArrayLayout::<2>::new_contiguous(src.shape(), Endian::BigEndian, 2)
+                        .to_inline_size(),
+                },
+                dst_base: offset_ptr(dst).cast_mut().cast(),
+                src_layout: layout(src),
+                src_base: offset_ptr(src).cast(),
+            },
+            &mut [],
+            stream,
+        )
+        .unwrap();
     }
 }
 

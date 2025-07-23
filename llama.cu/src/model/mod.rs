@@ -1,6 +1,7 @@
 ﻿mod chat_template;
+pub(crate) mod image;
 mod llama;
-mod qw2vl_mmproj;
+pub(crate) mod qw2vl_mmproj;
 
 use crate::utils::{Blob, Data};
 use ggus::{

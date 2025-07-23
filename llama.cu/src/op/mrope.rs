@@ -26,17 +26,17 @@ impl Operator for MRope {
         //检查dim
         dims!([n, dh_mut_dhead] = x);
         dims!([n2, _dim] = pos); // dim 维 pos_ids
-        dims!([nctx, dh_2] = sin);
-        dims!([nctx2, dh_2_] = cos);
+        dims!([nctx, dh_4] = sin);
+        dims!([nctx2, dh_4_] = cos);
         dims!([n3, dh_mut_dhead_] = y);
 
         assert_eq!(n, n2);
         assert_eq!(n, n3);
         assert_eq!(dh_mut_dhead, dh_mut_dhead_);
-        assert_eq!(dh_2, dh_2_);
+        assert_eq!(dh_4, dh_4_);
         assert_eq!(nctx, nctx2);
 
-        let dh = dh_2 * 2;
+        let dh = dh_4 * 4;
         let d_head = dh_mut_dhead / dh;
         assert_eq!(dh_mut_dhead % dh, 0);
 
@@ -99,8 +99,8 @@ impl Operator for MRope {
         stream.launch(
             &kernel,
             (
-                (nh_h as c_uint, n as c_uint),
-                (dh_div_2 as c_uint, nh_l as c_uint),
+                (n as c_uint, nh_h as c_uint),
+                (nh_l as c_uint, dh_div_2 as c_uint),
                 0,
             ),
             &params.to_ptrs(),

@@ -8,15 +8,16 @@ use nn::{
 
 impl GGufModel<'_> {
     /// 构造 qw2vl_mmproj 模型
-    pub fn _qw2vl_mmproj(&self) -> nn::Qwen2VLmmproj<Tensor<&[u8], 2>> {
-        let nblk = meta![self => llm_block_count];
-        let d = meta![self => llm_embedding_length];
-        let nh = meta![self => llm_attention_head_count];
+    #[allow(dead_code)]
+    pub fn qw2vl_mmproj(&self, nctx: usize) -> nn::Qwen2VLmmproj<Tensor<&[u8], 2>> {
+        let nblk = meta![self => llm_block_count; 32];
+        let d = meta![self => llm_embedding_length;1280];
+        let nh = meta![self => llm_attention_head_count;16];
         let nkvh = meta![self => llm_attention_head_count_kv; nh];
         let dh = meta![self => llm_rope_dimension_count; d / nh];
-        let _di = meta![self => llm_feed_forward_length];
+        let _di = meta![self => llm_feed_forward_length; 5120];
         let epsilon = meta![self => llm_attention_layer_norm_epsilon; 1e-6];
-        let d_patch = 14; // ggus todo
+        let d_patch = 14; // todo: ggus
         let d_proj = 1536;
         let dt = self.tensors["v.blk.0.attn_qkv.weight"].dt();
         let dt_norm = self.tensors["v.blk.0.ln1.weight"].dt();
@@ -50,13 +51,13 @@ impl GGufModel<'_> {
                                 dt,
                                 [(nh + nkvh + nkvh) * dh, d],
                                 get(&format!("v.blk.{iblk}.attn_qkv.weight")),
-                                Some((dt_norm, get(&format!("v.blk.{iblk}.attn_qkv.bias")))),
+                                Some((dt, get(&format!("v.blk.{iblk}.attn_qkv.bias")))),
                             ),
                             q_norm: None,
                             k_norm: None,
                             rope: Some(RoPE {
                                 multimodal: true,
-                                nctx: 34, // todo: from image
+                                nctx,
                                 sin: get("sin_table"),
                                 cos: get("cos_table"),
                             }),
@@ -64,7 +65,7 @@ impl GGufModel<'_> {
                                 dt,
                                 [d, nh * dh],
                                 get(&format!("v.blk.{iblk}.attn_out.weight")),
-                                Some((dt_norm, get(&format!("v.blk.{iblk}.attn_out.bias")))),
+                                Some((dt, get(&format!("v.blk.{iblk}.attn_out.bias")))),
                             ),
                         },
                         Normalization {
@@ -82,14 +83,14 @@ impl GGufModel<'_> {
                                 dt,
                                 [d * 4, d],
                                 get(&format!("v.blk.{iblk}.ffn_up.weight")),
-                                Some((dt_norm, get(&format!("v.blk.{iblk}.ffn_up.bias")))),
+                                Some((dt, get(&format!("v.blk.{iblk}.ffn_up.bias")))),
                             ),
                             act: Activation::GeLU,
                             down: Linear::new(
                                 dt,
                                 [d, d * 4],
                                 get(&format!("v.blk.{iblk}.ffn_down.weight")),
-                                Some((dt_norm, get(&format!("v.blk.{iblk}.ffn_down.bias")))),
+                                Some((dt, get(&format!("v.blk.{iblk}.ffn_down.bias")))),
                             ),
                         },
                     )
@@ -111,14 +112,14 @@ impl GGufModel<'_> {
                         dt,
                         [d * 4, d * 4],
                         get("mm.0.weight"),
-                        Some((dt_norm, get("mm.0.bias"))),
+                        Some((dt, get("mm.0.bias"))),
                     ),
                     act: Activation::GeLU,
                     down: Linear::new(
                         dt,
                         [d_proj, d * 4],
                         get("mm.2.weight"),
-                        Some((dt_norm, get("mm.2.bias"))),
+                        Some((dt, get("mm.2.bias"))),
                     ),
                 },
             },
@@ -126,11 +127,11 @@ impl GGufModel<'_> {
     }
 
     /// 插入用于 MRoPE 的 sin cos 表张量
-    pub fn _insert_sin_cos_qw2vl(&mut self) {
-        let nctx = meta![self => llm_context_length; 34]; // todo: from image
-        let d = meta![self => llm_embedding_length];
-        let nh = meta![self => llm_attention_head_count];
-        let dh = meta![self => llm_rope_dimension_count; d / nh];
+    #[allow(dead_code)]
+    pub(crate) fn insert_sin_cos_qw2vl(&mut self, nctx: usize) {
+        let d = meta![self => llm_embedding_length; 1280];
+        let nh = meta![self => llm_attention_head_count; 16];
+        let dh = meta![self => llm_rope_dimension_count; d / nh]; // todo: ggus
         let dh_div_2 = dh / 2; // h, w 维度均分 dh_div_2
         let theta = meta![self => llm_rope_freq_base; 1e4];
         let [sin, cos] = build_sin_cos(nctx, dh_div_2, theta, |pos, _| pos as _);
@@ -140,7 +141,8 @@ impl GGufModel<'_> {
 }
 
 /// 构造 pos_ids 表
-pub fn _build_pos_ids(h: usize, w: usize, d_patch: usize) -> Vec<u32> {
+#[allow(dead_code)]
+pub(crate) fn build_pos_ids(h: usize, w: usize, d_patch: usize) -> Vec<u32> {
     let hp = h / d_patch;
     let wp = w / d_patch;
     let mut pos = vec![0; hp * wp * 2];
