@@ -453,7 +453,7 @@ impl<'ctx> Internal<'ctx> {
 fn builder() -> GraphBuilder {
     let mut ans = GraphBuilder::default();
     ans.register_op("embedding", op::embedding::Embedding)
-        .register_op("add4d", op::add4d::Add4d)
+        .register_op("add", op::add::Add)
         .register_op("conv", op::conv::Conv)
         .register_op("layer-norm", op::normalization::LayerNorm)
         .register_op("rms-norm", op::normalization::RmsNorm)

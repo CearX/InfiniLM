@@ -21,6 +21,7 @@ use operators::cuda::{Stream, VirByte};
 
 pub mod random_sample;
 
+pub use add::Add;
 pub use add4d::Add4d;
 #[cfg(nccl)]
 pub use all_reduce::AllReduce;

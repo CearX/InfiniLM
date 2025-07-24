@@ -196,7 +196,11 @@ impl<'ctx> Handle<'ctx> {
             "rms-norm" => launch!(RmsNorm),
             "layer-norm" => launch!(LayerNorm),
             "linear" => launch!(Linear),
-            "add4d" => launch!(Add4d),
+            "add" => match inputs[0].shape().len() {
+                2 => launch!(Add),
+                4 => launch!(Add4d),
+                _ => panic!("add: unsupported shape"),
+            },
             "rope" => launch!(Rope),
             "mrope" => launch!(MRope),
             "gelu" => launch!(Gelu),
