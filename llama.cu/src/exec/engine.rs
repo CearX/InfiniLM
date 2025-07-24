@@ -9,12 +9,8 @@ use crate::{
     handle::Handle,
     op::{FastEmbedding, random_sample::KVPair},
 };
+use cuda::{ContextResource, CurrentCtx, Device, Event, HostMem};
 use nn::{Distribution, LLaMA, Tensor};
-use operators::{
-    Operator,
-    attention_kv_cached::cuda::Operator as Attn,
-    cuda::{ContextResource, CurrentCtx, Device, Event, Gpu, HostMem},
-};
 use std::{
     ffi::c_int,
     iter::zip,
@@ -30,7 +26,7 @@ use std::{
 use tokeneer::utok;
 
 #[cfg(nccl)]
-use operators::nccl::{Communicator, CommunicatorGroup};
+use nccl::{Communicator, CommunicatorGroup};
 
 type Stub = SessionStub<CacheParts>;
 
@@ -222,16 +218,13 @@ impl<T: IntoIterator<Item = usize>> Worker<T> {
         } = self;
 
         dev.set_mempool_threshold(u64::MAX);
-        let gpu = Gpu::new(dev.retain_primary(), Default::default());
-        let attn = Attn::new(&gpu);
-        gpu.apply(|ctx| {
+        dev.retain_primary().apply(|ctx| {
             let mut handle = handle(ctx);
             let mut models = ModelGroup::new(
                 llama,
                 dist,
                 progress,
                 config,
-                attn,
                 &mut handle,
                 barrier.as_deref(),
             );
@@ -373,21 +366,12 @@ impl<T: IntoIterator<Item = usize>> Worker<T> {
             ..
         } = self;
 
-        dev.set_mempool_threshold(u64::MAX);
-        let gpu = Gpu::new(dev.retain_primary(), Default::default());
-        let attn = Attn::new(&gpu);
         let barrier = barrier.unwrap();
-        gpu.apply(|ctx| {
+        dev.set_mempool_threshold(u64::MAX);
+        dev.retain_primary().apply(|ctx| {
             let mut handle = Handle::with_comm(ctx, comm);
-            let mut models = ModelGroup::new(
-                llama,
-                dist,
-                progress,
-                config,
-                attn,
-                &mut handle,
-                Some(&barrier),
-            );
+            let mut models =
+                ModelGroup::new(llama, dist, progress, config, &mut handle, Some(&barrier));
 
             let stream = ctx.stream();
             loop {

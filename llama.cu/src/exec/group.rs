@@ -1,11 +1,8 @@
 use super::{CacheParts, Progress, model::ModelExec, upos};
 use crate::{batch::Req, handle::Handle, load::load_weight, memory::MemPages};
+use cuda::{DevByte, DevMem, Stream, VirByte};
 use nn::{
     Distribution, Graph, GraphBuilder, LLaMA, NNGraph, Tensor, TensorMeta, digit_layout::types, op,
-};
-use operators::{
-    attention_kv_cached::cuda::Operator as Attn,
-    cuda::{DevByte, DevMem, Stream, VirByte},
 };
 use std::{
     collections::BTreeMap,
@@ -16,7 +13,6 @@ use tokeneer::utok;
 
 pub(crate) struct ModelGroup<'ctx> {
     internal: Internal<'ctx>,
-    attn: Attn,
     pages: MemPages,
     _weight: DevMem<'ctx>,
 }
@@ -36,7 +32,6 @@ impl<'ctx> ModelGroup<'ctx> {
 
         config: ModelGroupConfig<T>,
 
-        attn: Attn,
         handle: &mut Handle<'ctx>,
         barrier: Option<&Barrier>,
     ) -> Self {
@@ -82,7 +77,6 @@ impl<'ctx> ModelGroup<'ctx> {
         let models_with_one_dyn = Internal::new(graph, static_models, dyn_cache_size);
         Self {
             internal: models_with_one_dyn,
-            attn,
             pages,
             _weight,
         }
@@ -125,10 +119,7 @@ impl<'ctx> ModelGroup<'ctx> {
         stream: &Stream<'ctx>,
     ) -> Tensor<*const VirByte, 2> {
         let Self {
-            internal,
-            attn,
-            pages,
-            ..
+            internal, pages, ..
         } = self;
 
         let mut reqs = reqs
@@ -142,7 +133,8 @@ impl<'ctx> ModelGroup<'ctx> {
         let reqs = reqs
             .iter_mut()
             .map(|req| {
-                req.cache.update(req.pos + req.seq, pages);
+                req.cache
+                    .update((req.pos + req.seq).div_ceil(32) * 32, pages);
                 Req {
                     cache: req.cache.as_tensor(),
                     pos: req.pos,
@@ -154,7 +146,7 @@ impl<'ctx> ModelGroup<'ctx> {
         internal
             .get_mut(&key)
             .unwrap()
-            .launch(attn, handle, &reqs, stream)
+            .launch(handle, &reqs, stream)
     }
 }
 

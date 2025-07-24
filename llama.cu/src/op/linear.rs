@@ -1,14 +1,12 @@
 ﻿use super::{Handle, Operator, add::Add};
 use crate::utils::{destruct, dims, offset_ptr};
+use cublas::GemmScheme;
+use cuda::{Stream, VirByte};
 use ggus::ggml_quants::f16;
 use nn::{
     Arg, Tensor,
     digit_layout::{DigitLayout, types},
     ndarray_layout::ArrayLayout,
-};
-use operators::{
-    cublas::GemmScheme,
-    cuda::{Stream, VirByte},
 };
 use std::mem::swap;
 

@@ -1,11 +1,11 @@
-﻿use crate::{
+use crate::{
     SessionId,
     batch::SampleInfo,
     op::random_sample::{KV_PAIR, KVPair, LogitsModifier, RandomSample},
     utils::dims,
 };
+use cuda::{CurrentCtx, DevByte, DevMem, Stream};
 use nn::Tensor;
-use operators::cuda::{CurrentCtx, DevByte, DevMem, Stream};
 use std::{collections::BTreeMap, ptr::null};
 use tokeneer::utok;
 

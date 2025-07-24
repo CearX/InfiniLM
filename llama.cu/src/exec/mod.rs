@@ -12,7 +12,7 @@ use crate::{
     batch::{Session as Session_, SessionId},
     op::random_sample::KVPair,
 };
-use operators::cuda::{ContextSpore, CurrentCtx, DevMemSpore, EventSpore, Stream};
+use cuda::{ContextSpore, CurrentCtx, DevMemSpore, EventSpore, Stream};
 use std::collections::BTreeMap;
 use tokeneer::utok;
 

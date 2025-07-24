@@ -7,13 +7,13 @@ mod model;
 mod op;
 mod utils;
 
+use cuda::{self, Device};
 use exec::{Command, KVCache, Output, Request, engine};
 use ggus::GGufMetaMapExt;
 use log::info;
 use memory::MemPages;
 use model::{ChatTemplate, GGufModel, map_files};
 use nn::Tensor;
-use operators::cuda::{self, Device};
 use std::{
     collections::{BTreeMap, HashSet},
     ffi::c_int,

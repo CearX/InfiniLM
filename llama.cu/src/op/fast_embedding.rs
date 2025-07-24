@@ -1,6 +1,6 @@
 use super::{Handle, ModuleKey, cuda_type};
+use cuda::{CurrentCtx, DevByte, DevMem, Stream, params};
 use nn::digit_layout::{DigitLayout, types};
-use operators::cuda::{CurrentCtx, DevByte, DevMem, Stream, params};
 use std::ffi::c_uint;
 use tokeneer::utok;
 

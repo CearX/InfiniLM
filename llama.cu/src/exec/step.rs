@@ -1,15 +1,13 @@
 ﻿use crate::{
     batch::Req,
     handle::Handle,
-    op::{self, Operator as _},
-    utils::{destruct, layout, offset_ptr},
+    op::{self, ModuleKey, Operator as _},
+    utils::{destruct, distinct, offset_ptr, strides},
 };
-use nn::{Arg, Named, Tensor};
-use operators::{
-    Operator as _,
-    attention_kv_cached::{Args as AttnArgs, cuda::Operator as Attn},
-    cuda::{CaptureStream, GraphExec, Stream, VirByte},
-};
+use cuda::{CaptureStream, GraphExec, Module, Stream, VirByte};
+use flash_attn::attention::{FlashAttnCfg, KVPage, KernelReq, Strides2D};
+use ggus::ggml_quants::f16;
+use nn::{Arg, Named, Tensor, digit_layout::types};
 use regex::Regex;
 use std::{fmt, sync::LazyLock};
 
@@ -142,49 +140,162 @@ impl<'ctx> Handle<'ctx> {
 
     pub(super) fn launch_attn(
         &mut self,
-        op: &Attn,
         attn: &Attention,
         reqs: &[Req<Tensor<*const VirByte, 2>>],
         stream: &Stream,
     ) {
-        let Attention { iblk, q, k, v, o } = attn;
-        let mut start = 0;
-        for req in reqs {
-            // [nkvh, 2, nctx, dh]
-            let cache = req.cache.clone();
-            let cache = cache.transform(|layout| layout.index(1, *iblk));
-            let k_cache = cache.clone().transform(|layout| layout.index(1, 0));
-            let v_cache = cache.clone().transform(|layout| layout.index(1, 1));
-            // [nh, n, dh]
-            let len = req.seq;
-            let q = q.clone().transform(|layout| layout.slice(1, start, 1, len));
-            let k = k.clone().transform(|layout| layout.slice(1, start, 1, len));
-            let v = v.clone().transform(|layout| layout.slice(1, start, 1, len));
-            let o = o.clone().transform(|layout| layout.slice(1, start, 1, len));
-            start += len;
-            op.launch(
-                &AttnArgs {
-                    q_layout: layout(&q),
-                    q_base: offset_ptr(&q).cast_mut().cast(),
-                    k_layout: layout(&k),
-                    k_base: offset_ptr(&k).cast(),
-                    v_layout: layout(&v),
-                    v_base: offset_ptr(&v).cast(),
-                    o_layout: layout(&o),
-                    o_base: offset_ptr(&o).cast_mut().cast(),
-                    k_cache_layout: layout(&k_cache),
-                    k_cache_base: offset_ptr(&k_cache).cast_mut().cast(),
-                    v_cache_layout: layout(&v_cache),
-                    v_cache_base: offset_ptr(&v_cache).cast_mut().cast(),
-                    mask: operators::fuesd_softmax::AttnMask::Causal,
-                    pos: req.pos as _,
-                },
-                &mut [],
-                stream,
-            )
-            .unwrap()
+        let Attention { q, k, v, o, .. } = attn;
+        let dt = distinct(&[q.dt(), k.dt(), v.dt(), o.dt()]).unwrap();
+        // 编译
+        let key = [ModuleKey::Text("flash-attn"), ModuleKey::Type(dt)].into_iter();
+        let [t_compute, t_data] = match dt {
+            types::F16 => ["float", "half"],
+            _ => todo!(),
+        };
+        let module = self.compile(key.collect(), || {
+            ::flash_attn::attention::cuda::code(t_compute, t_data)
+        });
+        match dt {
+            types::F16 => launch_attn_typed::<f16>(attn, reqs, module, stream),
+            _ => todo!(),
         }
     }
+}
+
+fn launch_attn_typed<T: Copy>(
+    attn: &Attention,
+    reqs: &[Req<Tensor<*const VirByte, 2>>],
+    module: &Module,
+    stream: &Stream,
+) {
+    const TILE_SEQ: usize = 32;
+    const TILE_CTX: usize = 32;
+
+    let Attention { iblk, q, k, v, o } = attn;
+    // 取参数
+    destruct!([nh_q, seq_q, dh_q] = q.shape());
+    destruct!([nkvh_k, seq_k, dh_k] = k.shape());
+    destruct!([nkvh_v, seq_v, dh_v] = v.shape());
+    destruct!([nh_o, seq_o, dh_o] = o.shape());
+    let h = *distinct(&[nh_q, nh_o]).unwrap();
+    let kvh = *distinct(&[nkvh_k, nkvh_v]).unwrap();
+    let _seq = *distinct(&[seq_q, seq_k, seq_v, seq_o]).unwrap();
+    let d = *distinct(&[dh_q, dh_k, dh_v, dh_o]).unwrap();
+    let cfg = FlashAttnCfg {
+        h,
+        kvh,
+        d,
+        tile_seq: TILE_SEQ,
+        tile_ctx: TILE_CTX,
+    };
+    let q_strides = {
+        strides!([head, seq, _] = q);
+        Strides2D { head, seq }
+    };
+    let k_strides = {
+        strides!([head, seq, _] = k);
+        Strides2D { head, seq }
+    };
+    let v_strides = {
+        strides!([head, seq, _] = v);
+        Strides2D { head, seq }
+    };
+    let o_strides = {
+        strides!([head, seq, _] = o);
+        Strides2D { head, seq }
+    };
+
+    // 生成所有页指针
+    let cache_pages = reqs
+        .iter()
+        .flat_map(|req| {
+            let Req { cache, pos, seq: n } = req;
+            (0..(pos + n).div_ceil(TILE_CTX)).map(|i| {
+                let cache = cache
+                    .clone()
+                    .transform(|layout| layout.index(1, *iblk).index(2, i * TILE_CTX));
+                let base = *cache.get();
+                let k = cache
+                    .clone()
+                    .transform(|layout| layout.index(1, 0))
+                    .offset();
+                let v = cache
+                    .clone()
+                    .transform(|layout| layout.index(1, 1))
+                    .offset();
+                KVPage::<T> {
+                    k: unsafe { base.byte_offset(k).cast_mut().cast() },
+                    v: unsafe { base.byte_offset(v).cast_mut().cast() },
+                }
+            })
+        })
+        .collect::<Box<_>>();
+    // 生成 mask
+    let masks = reqs
+        .iter()
+        .map(|req| {
+            let Req { pos, seq: n, .. } = req;
+            let s = pos + n;
+            let s_ceil = s.div_ceil(TILE_CTX) * TILE_CTX;
+            // 注意力掩码
+            let mask = (0..n * s_ceil)
+                .map(|i| i % s_ceil <= s - n + i / s_ceil)
+                .collect::<Box<_>>();
+            stream.from_host(&mask)
+        })
+        .collect::<Box<_>>();
+    // 为每个请求的每个头生成 block
+    let reqs_ = reqs
+        .iter()
+        .zip(&masks)
+        .scan((0, 0), |(seq, page), (req, mask)| {
+            let &Req {
+                ref cache,
+                pos,
+                seq: n,
+            } = req;
+            let kv_strides = {
+                strides!([head, _, _, seq, _] = cache);
+                Strides2D { head, seq }
+            };
+
+            let seq_start = *seq;
+            *seq += n;
+            let pages_start = *page as _;
+            *page += (pos + n).div_ceil(TILE_CTX);
+
+            let q = q
+                .clone()
+                .transform(|layout| layout.slice(1, seq_start, 1, n));
+            let k = k
+                .clone()
+                .transform(|layout| layout.slice(1, seq_start, 1, n));
+            let v = v
+                .clone()
+                .transform(|layout| layout.slice(1, seq_start, 1, n));
+            let o = o
+                .clone()
+                .transform(|layout| layout.slice(1, seq_start, 1, n));
+
+            Some(KernelReq::<T> {
+                q: offset_ptr(&q).cast(),
+                q_strides,
+                k: offset_ptr(&k).cast(),
+                k_strides,
+                v: offset_ptr(&v).cast(),
+                v_strides,
+                pages_start,
+                kv_strides,
+                o: offset_ptr(&o).cast_mut().cast(),
+                o_strides,
+                mask: mask.as_ptr().cast(),
+                n,
+                s: pos + n,
+            })
+        })
+        .collect::<Box<_>>();
+
+    cfg.compute_cuda::<T>(&cache_pages, &reqs_, module, stream);
 }
 
 struct ErrorFmt<'a> {

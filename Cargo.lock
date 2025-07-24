@@ -181,12 +181,6 @@ checksum = "1b8e56985ec62d17e9c1001dc89c88ecd7dc08e47eba5ec7c29c7b5eeecde967"
 
 [[package]]
 name = "build-script-cfg"
-version = "0.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "62416e5d5d54b59baf7fd793ee632d83a7512d2d4ef227729642b45db09e6c7d"
-
-[[package]]
-name = "build-script-cfg"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8c29e9fc2e21f813dfebfc1af5c08b1ebea0a69f79fc6dab7da77c9825efc757"
@@ -464,7 +458,7 @@ version = "0.0.0"
 source = "git+https://github.com/YdrMaster/cuda-driver?rev=31c8090#31c8090dd03ae0f7171a4a6f2a01251d70167ef3"
 dependencies = [
  "bindgen",
- "build-script-cfg 0.1.0",
+ "build-script-cfg",
  "cuda",
  "find_cuda_helper",
  "half",
@@ -478,7 +472,7 @@ version = "0.0.0"
 source = "git+https://github.com/YdrMaster/cuda-driver?rev=31c8090#31c8090dd03ae0f7171a4a6f2a01251d70167ef3"
 dependencies = [
  "bindgen",
- "build-script-cfg 0.1.0",
+ "build-script-cfg",
  "context-spore",
  "find_cuda_helper",
  "log",
@@ -653,6 +647,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "flash-attn"
+version = "0.0.13"
+source = "git+https://github.com/YdrMaster/learn-flash-attn?rev=57176f5#57176f5a958409dade6d8ce63b51ce481f862de5"
+dependencies = [
+ "build-script-cfg",
+ "cuda",
+ "find_cuda_helper",
+ "num-traits",
+ "rayon",
+]
+
+[[package]]
 name = "flexi_logger"
 version = "0.30.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -699,16 +705,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e13624c2627564efccf4934284bdd98cbaa14e79b0b5a141218e507b3a823456"
 dependencies = [
  "percent-encoding",
-]
-
-[[package]]
-name = "fslock"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "04412b8935272e3a9bae6f48c7bfff74c2911f60525404edfdd28e49884c3bfb"
-dependencies = [
- "libc",
- "winapi",
 ]
 
 [[package]]
@@ -1295,16 +1291,19 @@ checksum = "b4ce301924b7887e9d637144fdade93f9dfff9b60981d4ac161db09720d39aa5"
 name = "llama-cu"
 version = "0.0.0"
 dependencies = [
- "build-script-cfg 0.1.0",
+ "build-script-cfg",
  "bytesize",
+ "cublas",
+ "cuda",
  "cuda-cc",
+ "flash-attn",
  "ggus",
  "log",
  "lru 0.14.0",
  "memmap2",
  "minijinja",
+ "nccl",
  "nn",
- "operators",
  "rand",
  "regex",
  "search-corex-tools",
@@ -1458,7 +1457,7 @@ version = "0.0.0"
 source = "git+https://github.com/YdrMaster/cuda-driver?rev=31c8090#31c8090dd03ae0f7171a4a6f2a01251d70167ef3"
 dependencies = [
  "bindgen",
- "build-script-cfg 0.1.0",
+ "build-script-cfg",
  "cuda",
  "digit-layout",
  "search-corex-tools",
@@ -1644,31 +1643,6 @@ dependencies = [
  "libc",
  "pkg-config",
  "vcpkg",
-]
-
-[[package]]
-name = "operators"
-version = "0.0.0"
-source = "git+https://github.com/YdrMaster/operators-rs?rev=88c58bd#88c58bd43a75c122e3b862364b2081299ce6c8fc"
-dependencies = [
- "build-script-cfg 0.0.0",
- "cublas",
- "cuda",
- "digit-layout",
- "fslock",
- "half",
- "itertools 0.14.0",
- "libloading",
- "log",
- "lru 0.14.0",
- "nccl",
- "ndarray-layout",
- "num-traits",
- "rayon",
- "search-cl-tools",
- "search-corex-tools",
- "search-cuda-tools",
- "search-infini-tools",
 ]
 
 [[package]]
@@ -2064,11 +2038,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
-name = "search-cl-tools"
-version = "0.0.0"
-source = "git+https://github.com/InfiniTensor/clrt?rev=984ac7a#984ac7a2f6088d990a268313deedbc1c18f27857"
-
-[[package]]
 name = "search-corex-tools"
 version = "0.0.0"
 source = "git+https://github.com/YdrMaster/cuda-driver?rev=31c8090#31c8090dd03ae0f7171a4a6f2a01251d70167ef3"
@@ -2080,11 +2049,6 @@ source = "git+https://github.com/YdrMaster/cuda-driver?rev=31c8090#31c8090dd03ae
 dependencies = [
  "find_cuda_helper",
 ]
-
-[[package]]
-name = "search-infini-tools"
-version = "0.0.0"
-source = "git+https://github.com/InfiniTensor/infini-toolkit?rev=e8362c3#e8362c34d3fc3778f582dd3b0a55fae5cd9cb60c"
 
 [[package]]
 name = "search-maca-tools"

@@ -1,11 +1,11 @@
-﻿use crate::{
+use crate::{
     handle::Handle,
     load::WeightLoader,
     op::{self, Operator as _},
     utils::dims,
 };
+use cuda::{CurrentCtx, DevMem, Stream, VirByte};
 use nn::{Arg, Linear, NormType, Normalization, Tensor, digit_layout::types};
-use operators::cuda::{CurrentCtx, DevMem, Stream, VirByte};
 use tokeneer::utok;
 
 pub(super) struct OutputHead<'ctx> {

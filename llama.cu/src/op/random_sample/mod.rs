@@ -20,12 +20,12 @@ use crate::{
     check,
     utils::{dims, offset_ptr, strides},
 };
+use cuda::{AsRaw, CurrentCtx, DevMem, Stream, VirByte};
 use ggus::ggml_quants::f16;
 use nn::{
     Tensor,
     digit_layout::{layout, types as ty},
 };
-use operators::cuda::{AsRaw, CurrentCtx, DevMem, Stream, VirByte};
 use std::ffi::c_uint;
 
 pub(crate) use modifier::LogitsModifier;

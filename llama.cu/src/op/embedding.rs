@@ -1,7 +1,7 @@
-﻿use super::{Handle, ModuleKey, Operator, cuda_type, move_type};
+use super::{Handle, ModuleKey, Operator, cuda_type, move_type};
 use crate::utils::{destruct, dims, offset_ptr};
+use cuda::{Stream, VirByte, params};
 use nn::{Tensor, digit_layout::DigitLayout};
-use operators::cuda::{Stream, VirByte, params};
 use std::ffi::c_uint;
 
 pub struct Embedding;

@@ -1,4 +1,4 @@
-﻿use operators::cuda::{Device, MemProp, PhyMem, VirMem};
+﻿use cuda::{Device, MemProp, PhyMem, VirMem};
 use std::{
     ops::{Range, RangeBounds},
     sync::Arc,

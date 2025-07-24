@@ -1,6 +1,6 @@
-﻿use crate::memory::MemPages;
+use crate::memory::MemPages;
+use cuda::{VirByte, VirMem};
 use nn::Tensor;
-use operators::cuda::{VirByte, VirMem};
 
 pub(crate) struct KVCache {
     /// 基于虚地址的 cache 张量

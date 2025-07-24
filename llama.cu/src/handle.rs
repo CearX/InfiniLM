@@ -1,12 +1,10 @@
 ﻿use crate::op::ModuleKey;
-use operators::{
-    cublas::Cublas,
-    cuda::{CurrentCtx, Module, Ptx},
-};
+use cublas::Cublas;
+use cuda::{CurrentCtx, Module, Ptx};
 use std::collections::HashMap;
 
 #[cfg(nccl)]
-use operators::nccl::Communicator;
+use nccl::Communicator;
 
 pub(crate) struct Handle<'ctx> {
     pub ctx: &'ctx CurrentCtx,

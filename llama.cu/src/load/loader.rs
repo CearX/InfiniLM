@@ -1,4 +1,4 @@
-﻿use operators::cuda::{DevByte, Event, HostMem, Stream};
+﻿use cuda::{DevByte, Event, HostMem, Stream};
 use std::{
     borrow::Borrow,
     collections::{BTreeSet, HashMap, VecDeque},

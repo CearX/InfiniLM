@@ -12,11 +12,11 @@ mod rope;
 mod swiglu;
 
 use crate::handle::Handle;
+use cuda::{Stream, VirByte};
 use nn::{
     Tensor,
     digit_layout::{DigitLayout, types},
 };
-use operators::cuda::{Stream, VirByte};
 
 pub mod random_sample;
 

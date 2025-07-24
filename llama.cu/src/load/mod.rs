@@ -1,11 +1,11 @@
-﻿mod loader;
+mod loader;
 mod range_collector;
 
 use crate::exec::Progress;
 use bytesize::ByteSize;
+use cuda::{CurrentCtx, DevByte, DevMem, Stream, VirByte};
 use log::trace;
 use nn::{Edge, TPAction, TPTensor, Tensor};
-use operators::cuda::{CurrentCtx, DevByte, DevMem, Stream, VirByte};
 use range_collector::RangeCollector;
 use std::{
     collections::HashSet,

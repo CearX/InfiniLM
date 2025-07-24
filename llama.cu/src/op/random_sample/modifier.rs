@@ -1,9 +1,9 @@
-﻿//! <https://zhuanlan.zhihu.com/p/667025336>
+//! <https://zhuanlan.zhihu.com/p/667025336>
 
 use crate::utils::offset_ptr;
+use cuda::{CurrentCtx, DevByte, DevMem, Module, Ptx, Stream, VirByte, params};
 use log::warn;
 use nn::Tensor;
-use operators::cuda::{CurrentCtx, DevByte, DevMem, Module, Ptx, Stream, VirByte, params};
 use std::ffi::c_uint;
 use tokeneer::utok;
 

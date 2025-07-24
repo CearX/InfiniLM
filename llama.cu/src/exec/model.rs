@@ -6,12 +6,9 @@ use crate::{
     utils::{self, destruct},
 };
 use bytesize::ByteSize;
+use cuda::{DevByte, Stream, VirByte, VirMem};
 use log::trace;
 use nn::{NNGraph, Tensor};
-use operators::{
-    attention_kv_cached::cuda::Operator as Attn,
-    cuda::{DevByte, Stream, VirByte, VirMem},
-};
 use std::time::Instant;
 
 pub(super) struct ModelExec<'ctx> {
@@ -100,7 +97,6 @@ impl ModelExec<'_> {
 
     pub fn launch(
         &mut self,
-        attn: &Attn,
         handle: &mut Handle,
         reqs: &[Req<Tensor<*const VirByte, 2>>],
         stream: &Stream,
@@ -117,7 +113,7 @@ impl ModelExec<'_> {
                         std::process::exit(0);
                     }
                 }
-                Step::Attention(box_) => handle.launch_attn(attn, box_, reqs, stream),
+                Step::Attention(box_) => handle.launch_attn(box_, reqs, stream),
                 Step::Exec(exec) => handle.launch_nn_exec(exec, stream),
             }
         }

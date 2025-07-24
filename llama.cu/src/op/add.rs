@@ -1,7 +1,7 @@
 use super::{Handle, ModuleKey, Operator, cuda_type, gcd};
 use crate::utils::{destruct, dims, offset_ptr, strides};
+use cuda::{Stream, VirByte, params};
 use nn::{Arg, Tensor, digit_layout::DigitLayout};
-use operators::cuda::{Stream, VirByte, params};
 use std::ffi::{c_int, c_uint};
 
 pub struct Add;
