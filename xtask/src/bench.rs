@@ -54,7 +54,7 @@ impl BenchArgs {
         let mut steps = 0;
         loop {
             let time = Instant::now();
-            let Received { sessions, outputs } = service.recv(Duration::from_millis(100));
+            let Received { sessions, outputs } = service.recv(Duration::MAX);
             let time = time.elapsed();
             println!("{steps:03}. time = {time:?}");
             steps += 1;

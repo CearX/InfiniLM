@@ -5,11 +5,11 @@
     utils::{destruct, distinct, offset_ptr, strides},
 };
 use cuda::{CaptureStream, GraphExec, Module, Stream, VirByte};
-use flash_attn::attention::{FlashAttnCfg, KVPage, KernelReq, Strides2D};
+use flash_attn::attention::{AttnType, FlashAttnCfg, KVPage, KernelReq, Strides2D};
 use ggus::ggml_quants::f16;
 use nn::{Arg, Named, Tensor, digit_layout::types};
 use regex::Regex;
-use std::{fmt, sync::LazyLock};
+use std::{fmt, ptr::null, sync::LazyLock};
 
 pub(super) enum Step<'ctx> {
     Graph(GraphExec<'ctx>, Box<[Tensor<*const VirByte, 2>]>),
@@ -144,31 +144,28 @@ impl<'ctx> Handle<'ctx> {
         reqs: &[Req<Tensor<*const VirByte, 2>>],
         stream: &Stream,
     ) {
+        use ::flash_attn::attention::cuda::code as flash_attn_code;
         let Attention { q, k, v, o, .. } = attn;
         let dt = distinct(&[q.dt(), k.dt(), v.dt(), o.dt()]).unwrap();
         // 编译
         let key = [ModuleKey::Text("flash-attn"), ModuleKey::Type(dt)].into_iter();
-        let [t_compute, t_data] = match dt {
-            types::F16 => ["float", "half"],
-            _ => todo!(),
-        };
-        let module = self.compile(key.collect(), || {
-            ::flash_attn::attention::cuda::code(t_compute, t_data)
-        });
         match dt {
-            types::F16 => launch_attn_typed::<f16>(attn, reqs, module, stream),
+            types::F16 => {
+                let module = self.compile(key.collect(), || flash_attn_code::<f16>());
+                launch_attn_typed::<f16>(attn, reqs, module, stream)
+            }
             _ => todo!(),
         }
     }
 }
 
-fn launch_attn_typed<T: Copy>(
+fn launch_attn_typed<T: ::flash_attn::attention::cuda::NVDT>(
     attn: &Attention,
     reqs: &[Req<Tensor<*const VirByte, 2>>],
     module: &Module,
     stream: &Stream,
 ) {
-    const TILE_SEQ: usize = 32;
+    const TILE_SEQ: usize = 8;
     const TILE_CTX: usize = 32;
 
     let Attention { iblk, q, k, v, o } = attn;
@@ -230,25 +227,10 @@ fn launch_attn_typed<T: Copy>(
             })
         })
         .collect::<Box<_>>();
-    // 生成 mask
-    let masks = reqs
-        .iter()
-        .map(|req| {
-            let Req { pos, seq: n, .. } = req;
-            let s = pos + n;
-            let s_ceil = s.div_ceil(TILE_CTX) * TILE_CTX;
-            // 注意力掩码
-            let mask = (0..n * s_ceil)
-                .map(|i| i % s_ceil <= s - n + i / s_ceil)
-                .collect::<Box<_>>();
-            stream.from_host(&mask)
-        })
-        .collect::<Box<_>>();
     // 为每个请求的每个头生成 block
     let reqs_ = reqs
         .iter()
-        .zip(&masks)
-        .scan((0, 0), |(seq, page), (req, mask)| {
+        .scan((0, 0), |(seq, page), req| {
             let &Req {
                 ref cache,
                 pos,
@@ -288,9 +270,10 @@ fn launch_attn_typed<T: Copy>(
                 kv_strides,
                 o: offset_ptr(&o).cast_mut().cast(),
                 o_strides,
-                mask: mask.as_ptr().cast(),
                 n,
                 s: pos + n,
+                ty: AttnType::Causal,
+                mask: null(),
             })
         })
         .collect::<Box<_>>();

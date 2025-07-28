@@ -455,7 +455,7 @@ checksum = "460fbee9c2c2f33933d720630a6a0bac33ba7053db5344fac858d4b8952d77d5"
 [[package]]
 name = "cublas"
 version = "0.0.0"
-source = "git+https://github.com/YdrMaster/cuda-driver?rev=31c8090#31c8090dd03ae0f7171a4a6f2a01251d70167ef3"
+source = "git+https://github.com/YdrMaster/cuda-driver?rev=803d64b#803d64b9ec7d1eac9ad1fbcf9b554d41587b5c4f"
 dependencies = [
  "bindgen",
  "build-script-cfg",
@@ -469,7 +469,7 @@ dependencies = [
 [[package]]
 name = "cuda"
 version = "0.0.0"
-source = "git+https://github.com/YdrMaster/cuda-driver?rev=31c8090#31c8090dd03ae0f7171a4a6f2a01251d70167ef3"
+source = "git+https://github.com/YdrMaster/cuda-driver?rev=803d64b#803d64b9ec7d1eac9ad1fbcf9b554d41587b5c4f"
 dependencies = [
  "bindgen",
  "build-script-cfg",
@@ -483,7 +483,7 @@ dependencies = [
 [[package]]
 name = "cuda-cc"
 version = "0.0.0"
-source = "git+https://github.com/YdrMaster/cuda-driver?rev=31c8090#31c8090dd03ae0f7171a4a6f2a01251d70167ef3"
+source = "git+https://github.com/YdrMaster/cuda-driver?rev=803d64b#803d64b9ec7d1eac9ad1fbcf9b554d41587b5c4f"
 dependencies = [
  "bindgen",
 ]
@@ -648,14 +648,16 @@ dependencies = [
 
 [[package]]
 name = "flash-attn"
-version = "0.0.13"
-source = "git+https://github.com/YdrMaster/learn-flash-attn?rev=57176f5#57176f5a958409dade6d8ce63b51ce481f862de5"
+version = "0.0.14"
+source = "git+https://github.com/YdrMaster/learn-flash-attn?rev=1caeeee#1caeeee728f96964f023be7e38eba5a162209af9"
 dependencies = [
  "build-script-cfg",
  "cuda",
  "find_cuda_helper",
+ "half",
  "num-traits",
  "rayon",
+ "search-maca-tools",
 ]
 
 [[package]]
@@ -857,6 +859,7 @@ checksum = "459196ed295495a68f7d7fe1d84f6c4b7ff0e21fe3017b2f283c6fac3ad803c9"
 dependencies = [
  "cfg-if",
  "crunchy",
+ "num-traits",
 ]
 
 [[package]]
@@ -993,7 +996,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.6.0",
+ "socket2",
  "system-configuration",
  "tokio",
  "tower-service",
@@ -1260,8 +1263,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "07033963ba89ebaf1584d767badaa2e8fcec21aedea6b8c0346d487d49c28667"
 dependencies = [
  "cfg-if",
- "windows-targets 0.53.2",
+ "windows-targets 0.53.3",
 ]
+
+[[package]]
+name = "libm"
+version = "0.2.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f9fbbcab51052fe104eb5e5d351cf728d30a5be1fe14d9be8a3b097481fb97de"
 
 [[package]]
 name = "linux-raw-sys"
@@ -1283,9 +1292,9 @@ checksum = "241eaef5fd12c88705a01fc1066c48c4b36e0dd4377dcdc7ec3942cea7a69956"
 
 [[package]]
 name = "litrs"
-version = "0.4.1"
+version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b4ce301924b7887e9d637144fdade93f9dfff9b60981d4ac161db09720d39aa5"
+checksum = "f5e54036fe321fd421e10d732f155734c4e4afd610dd556d9a82833ab3ee0bed"
 
 [[package]]
 name = "llama-cu"
@@ -1454,7 +1463,7 @@ dependencies = [
 [[package]]
 name = "nccl"
 version = "0.0.0"
-source = "git+https://github.com/YdrMaster/cuda-driver?rev=31c8090#31c8090dd03ae0f7171a4a6f2a01251d70167ef3"
+source = "git+https://github.com/YdrMaster/cuda-driver?rev=803d64b#803d64b9ec7d1eac9ad1fbcf9b554d41587b5c4f"
 dependencies = [
  "bindgen",
  "build-script-cfg",
@@ -1540,6 +1549,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "071dfc062690e90b734c0b2273ce72ad0ffa95f0c74596bc250dcfd960262841"
 dependencies = [
  "autocfg",
+ "libm",
 ]
 
 [[package]]
@@ -1846,9 +1856,9 @@ dependencies = [
 
 [[package]]
 name = "redox_syscall"
-version = "0.5.15"
+version = "0.5.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7e8af0dde094006011e6a740d4879319439489813bd0bcdc7d821beaeeff48ec"
+checksum = "5407465600fb0548f1442edf71dd20683c6ed326200ace4b1ef0763521bb3b77"
 dependencies = [
  "bitflags",
 ]
@@ -1941,9 +1951,9 @@ dependencies = [
 
 [[package]]
 name = "rustc-demangle"
-version = "0.1.25"
+version = "0.1.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "989e6739f80c4ad5b13e0fd7fe89531180375b18520cc8c82080e4dc4035b84f"
+checksum = "56f7d92ca342cea22a06f2121d944b4fd82af56988c270852495420f961d4ace"
 
 [[package]]
 name = "rustc-hash"
@@ -2040,12 +2050,12 @@ checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 [[package]]
 name = "search-corex-tools"
 version = "0.0.0"
-source = "git+https://github.com/YdrMaster/cuda-driver?rev=31c8090#31c8090dd03ae0f7171a4a6f2a01251d70167ef3"
+source = "git+https://github.com/YdrMaster/cuda-driver?rev=803d64b#803d64b9ec7d1eac9ad1fbcf9b554d41587b5c4f"
 
 [[package]]
 name = "search-cuda-tools"
 version = "0.0.0"
-source = "git+https://github.com/YdrMaster/cuda-driver?rev=31c8090#31c8090dd03ae0f7171a4a6f2a01251d70167ef3"
+source = "git+https://github.com/YdrMaster/cuda-driver?rev=803d64b#803d64b9ec7d1eac9ad1fbcf9b554d41587b5c4f"
 dependencies = [
  "find_cuda_helper",
 ]
@@ -2053,7 +2063,7 @@ dependencies = [
 [[package]]
 name = "search-maca-tools"
 version = "0.1.0"
-source = "git+https://github.com/YdrMaster/cuda-driver?rev=31c8090#31c8090dd03ae0f7171a4a6f2a01251d70167ef3"
+source = "git+https://github.com/YdrMaster/cuda-driver?rev=803d64b#803d64b9ec7d1eac9ad1fbcf9b554d41587b5c4f"
 
 [[package]]
 name = "security-framework"
@@ -2184,16 +2194,6 @@ name = "smallvec"
 version = "1.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03"
-
-[[package]]
-name = "socket2"
-version = "0.5.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e22376abed350d73dd1cd119b57ffccad95b4e585a7cda43e286245ce23c0678"
-dependencies = [
- "libc",
- "windows-sys 0.52.0",
-]
 
 [[package]]
 name = "socket2"
@@ -2379,9 +2379,9 @@ dependencies = [
 
 [[package]]
 name = "tokio"
-version = "1.46.1"
+version = "1.47.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0cc3a2344dafbe23a245241fe8b09735b521110d30fcefbbd5feb1797ca35d17"
+checksum = "43864ed400b6043a4757a25c7a64a8efde741aed79a056a2fb348a406701bb35"
 dependencies = [
  "backtrace",
  "bytes",
@@ -2390,8 +2390,8 @@ dependencies = [
  "mio",
  "pin-project-lite",
  "slab",
- "socket2 0.5.10",
- "windows-sys 0.52.0",
+ "socket2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -2863,7 +2863,7 @@ version = "0.60.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f2f500e4d28234f72040990ec9d39e3a6b950f9f22d3dba18416c35882612bcb"
 dependencies = [
- "windows-targets 0.53.2",
+ "windows-targets 0.53.3",
 ]
 
 [[package]]
@@ -2884,10 +2884,11 @@ dependencies = [
 
 [[package]]
 name = "windows-targets"
-version = "0.53.2"
+version = "0.53.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c66f69fcc9ce11da9966ddb31a40968cad001c5bedeb5c2b82ede4253ab48aef"
+checksum = "d5fe6031c4041849d7c496a8ded650796e7b6ecc19df1a431c1a363342e5dc91"
 dependencies = [
+ "windows-link",
  "windows_aarch64_gnullvm 0.53.0",
  "windows_aarch64_msvc 0.53.0",
  "windows_i686_gnu 0.53.0",
