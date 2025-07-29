@@ -29,8 +29,14 @@ pub(super) struct Model {
 }
 
 pub(super) enum Output {
-    Text { think: String, content: String },
-    Finish(FinishReason),
+    Text {
+        think: String,
+        content: String,
+    },
+    Finish {
+        reason: FinishReason,
+        num_tokens: [usize; 2],
+    },
 }
 
 struct SessionInfo {
@@ -38,7 +44,21 @@ struct SessionInfo {
     buf: TextBuf,
     think: bool,
     tokens: Vec<utok>,
+    prompt_tokens: usize,
     accumulated_content: String, // Track all generated content for blacklist detection
+}
+
+impl SessionInfo {
+    fn new(sender: UnboundedSender<Output>, tokens: Vec<utok>) -> Self {
+        Self {
+            buf: TextBuf::new(),
+            think: false,
+            prompt_tokens: tokens.len(),
+            accumulated_content: String::new(),
+            sender,
+            tokens,
+        }
+    }
 }
 
 impl Model {
@@ -181,7 +201,10 @@ impl Model {
                     // Send finish signal
                     if session_info
                         .sender
-                        .send(Output::Finish(FinishReason::Stop))
+                        .send(Output::Finish {
+                            reason: FinishReason::Stop,
+                            num_tokens: [session_info.prompt_tokens, session_info.tokens.len()],
+                        })
                         .is_err()
                     {
                         info!("{session_id:?} 客户端连接已关闭");
@@ -202,8 +225,13 @@ impl Model {
             // 处理会话结束
             if !sessions.is_empty() {
                 for (session, reason) in sessions {
-                    let SessionInfo { tokens, sender, .. } =
-                        sessions_guard.remove(&session.id).unwrap();
+                    let SessionInfo {
+                        tokens,
+                        sender,
+                        prompt_tokens,
+                        ..
+                    } = sessions_guard.remove(&session.id).unwrap();
+                    let num_tokens = [prompt_tokens, tokens.len()];
                     let reason = match reason {
                         ReturnReason::Finish => {
                             // 正常完成，插回 cache
@@ -221,7 +249,7 @@ impl Model {
                     };
 
                     sender
-                        .send(Output::Finish(reason))
+                        .send(Output::Finish { reason, num_tokens })
                         .unwrap_or_else(|_| info!("{:?} 发送正常完成失败", session.id));
                 }
             }
@@ -298,18 +326,12 @@ impl Model {
             max_tokens,
         );
 
-        let session_info = SessionInfo {
-            sender,
-            tokens,
-            buf: TextBuf::new(),
-            think: false,
-            accumulated_content: String::new(),
-        };
+        let session_info = SessionInfo::new(sender, tokens);
         assert!(
             self.sessions
                 .lock()
                 .unwrap()
-                .insert(id, session_info,)
+                .insert(id, session_info)
                 .is_none()
         );
 
@@ -360,18 +382,12 @@ impl Model {
             max_tokens,
         );
 
-        let session_info = SessionInfo {
-            sender,
-            tokens,
-            buf: TextBuf::new(),
-            think: false,
-            accumulated_content: String::new(),
-        };
+        let session_info = SessionInfo::new(sender, tokens);
         assert!(
             self.sessions
                 .lock()
                 .unwrap()
-                .insert(id, session_info,)
+                .insert(id, session_info)
                 .is_none()
         );
 

@@ -1,9 +1,10 @@
 ﻿use hyper::Method;
 use openai_struct::{
-    ChatCompletionResponseMessage, ChatCompletionStreamResponseDelta, CreateChatCompletionResponse,
-    CreateChatCompletionResponseChoices, CreateChatCompletionStreamResponse,
-    CreateChatCompletionStreamResponseChoices, CreateCompletionResponse,
-    CreateCompletionResponseChoices, CreateCompletionResponseLogprobs, FinishReason, Model,
+    ChatCompletionResponseMessage, ChatCompletionStreamResponseDelta, CompletionUsage,
+    CreateChatCompletionResponse, CreateChatCompletionResponseChoices,
+    CreateChatCompletionStreamResponse, CreateChatCompletionStreamResponseChoices,
+    CreateCompletionResponse, CreateCompletionResponseChoices, CreateCompletionResponseLogprobs,
+    FinishReason, Model,
 };
 use serde::Serialize;
 
@@ -42,6 +43,7 @@ pub(crate) fn chat_completion_response(
     model: String,
     think: Option<String>,
     answer: Option<String>,
+    [prompt_tokens, total_tokens]: [usize; 2],
     finish_reason: Option<FinishReason>,
 ) -> CreateChatCompletionResponse {
     let choices = vec![CreateChatCompletionResponseChoices {
@@ -59,6 +61,13 @@ pub(crate) fn chat_completion_response(
         model,
         choices,
         created,
+        usage: Some(CompletionUsage {
+            completion_tokens: (total_tokens - prompt_tokens) as _,
+            prompt_tokens: prompt_tokens as _,
+            total_tokens: total_tokens as _,
+            completion_tokens_details: None,
+            prompt_tokens_details: None,
+        }),
         ..Default::default()
     }
 }
@@ -90,7 +99,7 @@ pub(crate) fn chat_completion_response_stream(
     }
 }
 
-pub(crate) fn create_completion_response(
+pub(crate) fn completion_response(
     id: usize,
     created: i32,
     model: String,

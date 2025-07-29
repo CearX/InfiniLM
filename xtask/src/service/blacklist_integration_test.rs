@@ -282,9 +282,7 @@ fn test_blacklist_configuration() {
         let lower_word = word.to_lowercase();
         assert!(
             blacklist.iter().any(|bw| bw == &lower_word),
-            "Blacklist should contain '{}' (lowercase: '{}')",
-            word,
-            lower_word
+            "Blacklist should contain '{word}' (lowercase: '{lower_word}')"
         );
     }
 
@@ -295,10 +293,7 @@ fn test_blacklist_configuration() {
     let max_length = word_lengths.iter().max().unwrap();
     let min_length = word_lengths.iter().min().unwrap();
 
-    info!(
-        "Blacklist word length range: {} to {} characters",
-        min_length, max_length
-    );
+    info!("Blacklist word length range: {min_length} to {max_length} characters");
     assert!(
         *max_length > 10,
         "Should have words longer than 10 characters for suffix optimization test"
@@ -378,7 +373,7 @@ blacklist = [
 "#;
 
     info!("Example TOML configuration:");
-    info!("{}", toml_config);
+    info!("{toml_config}");
 
     // In practice, you'd parse this with:
     // let config: ModelConfig = toml::from_str(toml_config).unwrap();

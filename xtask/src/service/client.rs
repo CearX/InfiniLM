@@ -358,7 +358,7 @@ fn test_blacklisted_check() {
             let normal_prompt = "Tell me a story about a cat";
             let req_body_normal = requset_body_chat(normal_prompt);
 
-            info!("Sending normal request: {}", normal_prompt);
+            info!("Sending normal request: {normal_prompt}");
             let normal_result =
                 send_single_request(port, &client, &headers, req_body_normal, Some(1)).await;
 

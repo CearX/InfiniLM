@@ -8,9 +8,7 @@ mod response;
 use crate::{
     parse_gpus,
     service::{
-        openai::{
-            chat_completion_response, chat_completion_response_stream, create_completion_response,
-        },
+        openai::{chat_completion_response, chat_completion_response_stream, completion_response},
         response::text_stream,
     },
 };
@@ -226,16 +224,14 @@ impl HyperService<Request<Incoming>> for App {
                         return Ok(text_stream(UnboundedReceiverStream::new(receiver).map(
                             move |output| {
                                 let response = match output {
-                                    model::Output::Text { content, .. } => {
-                                        create_completion_response(
-                                            id,
-                                            created,
-                                            model_name.clone(),
-                                            content,
-                                            None,
-                                        )
-                                    }
-                                    model::Output::Finish(reason) => create_completion_response(
+                                    model::Output::Text { content, .. } => completion_response(
+                                        id,
+                                        created,
+                                        model_name.clone(),
+                                        content,
+                                        None,
+                                    ),
+                                    model::Output::Finish { reason, .. } => completion_response(
                                         id,
                                         created,
                                         model_name.clone(),
@@ -257,14 +253,13 @@ impl HyperService<Request<Incoming>> for App {
                                 think_.push_str(&think);
                                 content_.push_str(&content);
                             }
-                            model::Output::Finish(reason) => {
+                            model::Output::Finish { reason, .. } => {
                                 assert!(reason_.replace(reason).is_none())
                             }
                         }
                     }
 
-                    let response =
-                        create_completion_response(id, created, model_name, content_, reason_);
+                    let response = completion_response(id, created, model_name, content_, reason_);
                     Ok(json(response))
                 })
             }
@@ -314,7 +309,7 @@ impl HyperService<Request<Incoming>> for App {
                                             None,
                                         )
                                     }
-                                    model::Output::Finish(reason) => {
+                                    model::Output::Finish { reason, .. } => {
                                         chat_completion_response_stream(
                                             id,
                                             created,
@@ -333,14 +328,16 @@ impl HyperService<Request<Incoming>> for App {
                     let mut think_ = String::new();
                     let mut content_ = String::new();
                     let mut reason_ = None;
+                    let mut num_tokens_ = [0, 0];
                     while let Some(output) = receiver.recv().await {
                         match output {
                             model::Output::Text { think, content } => {
                                 think_.push_str(&think);
                                 content_.push_str(&content);
                             }
-                            model::Output::Finish(reason) => {
-                                assert!(reason_.replace(reason).is_none())
+                            model::Output::Finish { reason, num_tokens } => {
+                                assert!(reason_.replace(reason).is_none());
+                                num_tokens_ = num_tokens
                             }
                         }
                     }
@@ -351,6 +348,7 @@ impl HyperService<Request<Incoming>> for App {
                         model_name,
                         Some(think_).filter(|s| !s.is_empty()),
                         Some(content_).filter(|s| !s.is_empty()),
+                        num_tokens_,
                         reason_,
                     );
                     Ok(json(response))
