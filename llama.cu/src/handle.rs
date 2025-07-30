@@ -1,6 +1,6 @@
 ﻿use crate::op::ModuleKey;
 use cublas::Cublas;
-use cuda::{CurrentCtx, Module, Ptx};
+use cuda::{CurrentCtx, Module, Rtc};
 use std::collections::HashMap;
 
 #[cfg(nccl)]
@@ -37,9 +37,11 @@ impl<'ctx> Handle<'ctx> {
 
     pub fn compile(&mut self, key: Box<[ModuleKey]>, code: impl FnOnce() -> String) -> &Module {
         self.modules.entry(key).or_insert_with(|| {
-            let (ptx, log) = Ptx::compile(code(), self.ctx.dev().compute_capability());
-            let Ok(ptx) = ptx else { panic!("{log}") };
-            self.ctx.load(&ptx)
+            let program = Rtc::new()
+                .arch(self.ctx.dev().compute_capability())
+                .compile(&code())
+                .unwrap();
+            self.ctx.load(&program)
         })
     }
 

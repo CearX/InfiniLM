@@ -35,7 +35,7 @@ fn main() {
 
 #[derive(Parser)]
 #[clap(name = "InfiniLM")]
-#[clap(version, about, long_about = None)]
+#[clap(version, long_about = None)]
 struct Cli {
     #[clap(subcommand)]
     command: Commands,

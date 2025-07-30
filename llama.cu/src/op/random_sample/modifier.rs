@@ -1,8 +1,7 @@
 //! <https://zhuanlan.zhihu.com/p/667025336>
 
 use crate::utils::offset_ptr;
-use cuda::{CurrentCtx, DevByte, DevMem, Module, Ptx, Stream, VirByte, params};
-use log::warn;
+use cuda::{CurrentCtx, DevByte, DevMem, Module, Rtc, Stream, VirByte, params};
 use nn::Tensor;
 use std::ffi::c_uint;
 use tokeneer::utok;
@@ -77,15 +76,10 @@ extern "C" __global__ void next(
     next_kernel(logits, records, n, eos, temperature, penalty, tok);
 }}"#
         );
-        let (ptx, log) = Ptx::compile(code, ctx.dev().compute_capability());
-        match ptx {
-            Ok(ptx) => {
-                if !log.is_empty() {
-                    warn!("{log}")
-                }
-                ctx.load(&ptx)
-            }
-            Err(e) => panic!("logits modify compilation failed with {e:?}, log:\n {log}"),
-        }
+        let program = Rtc::new()
+            .arch(ctx.dev().compute_capability())
+            .compile(&code)
+            .unwrap();
+        ctx.load(&program)
     }
 }

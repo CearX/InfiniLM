@@ -147,11 +147,19 @@ impl<'ctx> Handle<'ctx> {
         use ::flash_attn::attention::cuda::code as flash_attn_code;
         let Attention { q, k, v, o, .. } = attn;
         let dt = distinct(&[q.dt(), k.dt(), v.dt(), o.dt()]).unwrap();
+        let d = *q.shape().last().unwrap();
         // 编译
-        let key = [ModuleKey::Text("flash-attn"), ModuleKey::Type(dt)].into_iter();
+        let key = [
+            ModuleKey::Text("flash-attn"),
+            ModuleKey::Type(dt),
+            ModuleKey::Size(d),
+        ]
+        .into_iter();
         match dt {
             types::F16 => {
-                let module = self.compile(key.collect(), || flash_attn_code::<f16>());
+                let module = self.compile(key.collect(), || {
+                    flash_attn_code::<f16>(d, stream.ctx().dev().warp_size())
+                });
                 launch_attn_typed::<f16>(attn, reqs, module, stream)
             }
             _ => todo!(),
