@@ -3,17 +3,17 @@ use crate::utils::meta;
 use ggus::{GGufMetaError, GGufMetaMapExt};
 use log::info;
 use nn::{
-    Activation, Attention, Embedding, LLaMA, Linear, Mlp, NormType, Normalization, OutputHead,
-    RoPE, Table, Tensor, TransformerBlk, digit_layout::types,
+    Activation, Attention, Embedding, LLaMA, Linear, MRoPE, Mlp, NormType, Normalization,
+    OutputHead, RoPE, Table, Tensor, TransformerBlk, digit_layout::types,
 };
 
 impl GGufModel<'_> {
     /// 构造 llama-like 模型
-    pub fn llama(&self) -> nn::LLaMA<Tensor<&[u8], 2>> {
+    pub fn llama(&self, img_info: Option<[u32; 3]>) -> nn::LLaMA<Tensor<&[u8], 2>> {
         let arch = meta![self => general_architecture];
         let dt_bias = match arch {
             "llama" | "qwen3" => None,
-            "qwen2" => Some(self.tensors["blk.0.attn_qkv.bias"].dt()),
+            "qwen2" | "qwen2vl" => Some(self.tensors["blk.0.attn_qkv.bias"].dt()),
             arch => panic!("unsupported arch {arch}"),
         };
 
@@ -49,6 +49,7 @@ impl GGufModel<'_> {
                     weight: token_embd,
                 },
                 wpe: None,
+                img_info,
             },
             blks: (0..nblk)
                 .map(|iblk| {
@@ -101,7 +102,12 @@ impl GGufModel<'_> {
                                 None
                             },
                             rope: Some(RoPE {
-                                multimodal: false,
+                                multimodal: if arch == "qwen2vl" {
+                                    let mrope_section = [16, 24, 24]; // ggus todo
+                                    MRoPE::MRoPE3D(mrope_section)
+                                } else {
+                                    MRoPE::None
+                                },
                                 nctx,
                                 sin: get("sin_table"),
                                 cos: get("cos_table"),

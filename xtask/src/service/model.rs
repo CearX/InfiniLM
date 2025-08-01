@@ -54,7 +54,14 @@ impl Model {
             blacklist,
         } = config;
 
-        let mut service = Service::new(path, &gpus.unwrap_or(Box::new([0])), use_cuda_graph);
+        let mut service = Service::new(
+            path,
+            None,
+            None,
+            false,
+            &gpus.unwrap_or(Box::new([0])),
+            use_cuda_graph,
+        );
         progress_bar(&mut service);
 
         let think = if think.unwrap_or(false) {

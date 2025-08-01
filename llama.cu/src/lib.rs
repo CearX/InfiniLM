@@ -13,7 +13,7 @@ use log::info;
 use memory::MemPages;
 use model::{ChatTemplate, GGufModel, map_files};
 use nn::Tensor;
-use operators::cuda::{self, Device};
+use operators::cuda::{self, Device, VirByte};
 use std::{
     collections::{BTreeMap, HashSet},
     ffi::c_int,
@@ -32,7 +32,8 @@ use utils::meta;
 pub use crate::op::random_sample::SampleArgs;
 pub use batch::{Cache, Session, SessionId};
 pub use exec::Progress;
-pub use model::Message;
+pub use exec::{model_from_env, qw2vl_infer};
+pub use model::{Message, build_3d_pos_ids, image_from_env};
 pub use tokeneer::{TextBuf, utok};
 
 pub struct Service {
@@ -74,7 +75,14 @@ struct ModelComponents {
 }
 
 impl Service {
-    pub fn new(model: impl AsRef<Path>, gpus: &[c_int], use_cuda_grpah: bool) -> Self {
+    pub fn new(
+        model: impl AsRef<Path>,
+        img_info: Option<[u32; 3]>,
+        mrope_3d_pos_ids: Option<Vec<u32>>,
+        multimodal: bool,
+        gpus: &[c_int],
+        use_cuda_grpah: bool,
+    ) -> Self {
         info!("start inference @gpu{gpus:?}");
         // 创建调度通道
         let (outputs, receiver) = mpsc::channel();
@@ -102,6 +110,7 @@ impl Service {
             let cache_template = gguf.lm_kv_cache();
             let eos = meta![gguf => tokenizer_ggml_eos_token_id];
 
+            println!("img_info: {:?}", img_info);
             once_.get_or_init(|| ModelComponents {
                 tokenizer,
                 chat_template,
@@ -109,9 +118,19 @@ impl Service {
                 eos,
             });
             drop(once_);
+            println!("img_info: {:?}", img_info);
 
-            let llama = gguf.llama();
-            engine(llama, eos, &workers, commands, outputs, use_cuda_grpah)
+            let llama = gguf.llama(img_info);
+            engine(
+                llama,
+                multimodal,
+                mrope_3d_pos_ids,
+                eos,
+                &workers,
+                commands,
+                outputs,
+                use_cuda_grpah,
+            )
         });
         once.wait();
         Self {

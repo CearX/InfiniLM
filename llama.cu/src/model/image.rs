@@ -126,7 +126,7 @@ fn preprocess_image_for_qw2vl(
 }
 
 #[allow(dead_code)]
-pub(crate) fn image_from_env() -> PathBuf {
+pub fn image_from_env() -> PathBuf {
     let Some(img) = var_os("TEST_IMAGE").map(PathBuf::from) else {
         panic!("TEST_IMAGE not set");
     };

@@ -1,7 +1,7 @@
 ﻿use crate::{
     batch::Req,
     handle::Handle,
-    op::{self, Operator as _},
+    op::{self, EmbeddingQw2vl, Operator as _},
     utils::{Blob, destruct, layout, offset_ptr},
 };
 use ndarray_layout::{ArrayLayout, Endian};
@@ -192,7 +192,13 @@ impl<'ctx> Handle<'ctx> {
             };
         }
         match &*op.name {
-            "embedding" => launch!(Embedding),
+            "embedding" => {
+                if let Some(Arg::Arr(_)) = &op.arg {
+                    launch!(EmbeddingQw2vl)
+                } else {
+                    launch!(Embedding)
+                }
+            }
             "rms-norm" => launch!(RmsNorm),
             "layer-norm" => launch!(LayerNorm),
             "linear" => launch!(Linear),
@@ -202,8 +208,13 @@ impl<'ctx> Handle<'ctx> {
                 _ => panic!("add: unsupported shape"),
             },
             "rope" => launch!(Rope),
-            "mrope" => launch!(MRope),
+            "mrope" => match inputs[1].shape()[1] {
+                2 => launch!(MRope),
+                3 => launch!(MRope3d),
+                _ => panic!("mrope: unsupported shape"),
+            },
             "gelu" => launch!(Gelu),
+            "silu" => launch!(Silu),
             "swiglu" => launch!(Swiglu),
             #[cfg(nccl)]
             "all-reduce" => launch!(AllReduce),

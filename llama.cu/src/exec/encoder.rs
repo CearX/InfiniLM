@@ -5,22 +5,25 @@ use crate::{
         upos,
     },
     handle::Handle,
-    model::{image::qw2vl_image_preprocess, qw2vl_mmproj::build_pos_ids},
+    model::{
+        image::qw2vl_image_preprocess,
+        qw2vl_mmproj::{build_3d_pos_ids, build_pos_ids},
+    },
 };
-use nn::Distribution;
+use nn::{Distribution, Tensor};
 use operators::{
     Operator as _,
     attention::common_cpu::Operator as AttnCpu,
     // attention::cuda::Operator as Attn,
     common_cpu::Cpu,
     conv::cuda::ConvIm2Col,
-    cuda::{Device, Gpu},
+    cuda::{Device, Gpu, VirByte},
     rearrange::cuda::Operator as Rearrange,
 };
 use std::{env::var_os, path::PathBuf, time::Instant};
 
 #[allow(dead_code)]
-pub(crate) fn model_from_env() -> PathBuf {
+pub fn model_from_env() -> PathBuf {
     let Some(model) = var_os("TEST_MODEL").map(PathBuf::from) else {
         panic!("TEST_MODEL not set");
     };
@@ -28,7 +31,11 @@ pub(crate) fn model_from_env() -> PathBuf {
 }
 
 #[allow(dead_code)]
-pub fn qw2vl_infer(model_path: PathBuf, image: PathBuf, use_cuda_graph: bool) {
+pub fn qw2vl_infer(
+    model_path: PathBuf,
+    image: PathBuf,
+    use_cuda_graph: bool,
+) -> (Tensor<*const VirByte, 2>, [usize; 4]) {
     use crate::model::{GGufModel, map_files};
     use operators::cuda;
     // 初始化 CUDA
@@ -44,7 +51,7 @@ pub fn qw2vl_infer(model_path: PathBuf, image: PathBuf, use_cuda_graph: bool) {
     let [n, _c, h, w] = image_shape;
     let patches = (h / d_patch) * (w / d_patch);
     let nctx = (h / d_patch).max(w / d_patch);
-    gguf.insert_sin_cos_qw2vl(nctx);
+    gguf.insert_sin_cos_qw2vl_mmproj(nctx);
     let model = gguf.qw2vl_mmproj(nctx);
     // 初始化算子
     let device = Device::new(0);
@@ -106,9 +113,10 @@ pub fn qw2vl_infer(model_path: PathBuf, image: PathBuf, use_cuda_graph: bool) {
         // 推理
         let time = Instant::now();
         let reqs = vec![]; // QW2VLMMProj 不需要 cache
-        let _x = models.launch(key, &reqs, &mut handle, &stream);
+        let x = models.launch(key, &reqs, &mut handle, &stream);
         // utils::fmt(&_x, stream.ctx());
         println!("encode {n} x {h} x {w} image in {:?}", time.elapsed());
+        (x, [n, h, w, d_patch])
     })
 }
 
@@ -121,6 +129,6 @@ mod tests {
         use crate::model::image::image_from_env;
         let model = model_from_env();
         let image = image_from_env();
-        qw2vl_infer(model, image, false);
+        let _x = qw2vl_infer(model, image, false);
     }
 }

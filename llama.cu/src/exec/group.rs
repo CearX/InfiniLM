@@ -1,5 +1,6 @@
 use super::{CacheParts, Progress, model::ModelExec, upos};
-use crate::{batch::Req, handle::Handle, load::load_weight, memory::MemPages};
+use crate::op::EmbeddingQw2vl;
+use crate::{batch::Req, handle::Handle, load::load_weight, memory::MemPages, utils::offset_ptr};
 use nn::{
     Distribution, Graph, GraphBuilder, LLaMA, NNGraph, Qwen2VLmmproj, Tensor, TensorMeta,
     digit_layout::types, op,
@@ -35,6 +36,7 @@ pub(super) struct ModelGroupConfig<T> {
 impl<'ctx> ModelGroup<'ctx> {
     pub fn new<T: IntoIterator<Item = usize>>(
         llama: LLaMA<Tensor<&[u8], 2>>,
+        multimodal: bool,
         dist: Distribution,
         progress: Option<Arc<Progress>>,
 
@@ -51,15 +53,28 @@ impl<'ctx> ModelGroup<'ctx> {
         } = config;
 
         // 构建计算图
-        let NNGraph(Graph { topo, nodes, edges }) = builder()
-            .build(
-                llama.tensor_parallel(dist),
-                [
-                    TensorMeta::new(types::U32, ["n_tok".into()]),
-                    TensorMeta::new(types::U32, ["n_tok".into()]),
-                ],
-            )
-            .unwrap();
+        let NNGraph(Graph { topo, nodes, edges }) = if multimodal {
+            builder()
+                .build(
+                    llama.tensor_parallel(dist),
+                    [
+                        TensorMeta::new(types::U32, ["n_tok".into()]),
+                        TensorMeta::new(types::U32, ["n_tok".into(), 3.into()]),
+                    ],
+                )
+                .unwrap()
+        } else {
+            builder()
+                .build(
+                    llama.tensor_parallel(dist),
+                    [
+                        TensorMeta::new(types::U32, ["n_tok".into()]),
+                        TensorMeta::new(types::U32, ["n_tok".into()]),
+                    ],
+                )
+                .unwrap()
+        };
+
         // 加载权重
         let dev = handle.ctx.dev();
         let mut pages = MemPages::new(dev);
@@ -104,6 +119,21 @@ impl<'ctx> ModelGroup<'ctx> {
         let model = self.internal.map_exec(key, handle, &mut self.pages, stream);
         stream.memcpy_h2d(model.tok_buf(), &tok[..key.get()]);
         stream.memcpy_h2d(model.pos_buf(), &pos[..key.get()]);
+        (key, model.tok_buf())
+    }
+
+    pub fn load_inputs_qw2vl_llm(
+        &mut self,
+        handle: &mut Handle<'ctx>,
+        len: usize,
+        tok: &[utok],
+        pos: &[upos],
+        stream: &Stream<'ctx>,
+    ) -> (NonZeroUsize, &mut [DevByte]) {
+        let key = self.internal.get_key(NonZeroUsize::new(len).unwrap());
+        let model = self.internal.map_exec(key, handle, &mut self.pages, stream);
+        stream.memcpy_h2d(model.tok_buf(), &tok[..key.get()]);
+        stream.memcpy_h2d(model.pos_buf(), &pos[..key.get() * 3]);
         (key, model.tok_buf())
     }
 
@@ -453,6 +483,7 @@ impl<'ctx> Internal<'ctx> {
 fn builder() -> GraphBuilder {
     let mut ans = GraphBuilder::default();
     ans.register_op("embedding", op::embedding::Embedding)
+        // .register_op("qw2vl-embedding", Qw2vlEmbedding)
         .register_op("add", op::add::Add)
         .register_op("conv", op::conv::Conv)
         .register_op("layer-norm", op::normalization::LayerNorm)
@@ -462,6 +493,7 @@ fn builder() -> GraphBuilder {
         .register_op("mrope", op::mrope::Mrope)
         .register_op("attention", op::attention::Attention)
         .register_op("gelu", op::activation::GeLU)
+        .register_op("silu", op::activation::SiLU)
         .register_op("swiglu", op::activation::SwiGLU)
         .register_op("concat", op::concat::Concat)
         .register_op("split", op::split::Split)

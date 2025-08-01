@@ -13,6 +13,7 @@ use crate::{
     batch::{Session as Session_, SessionId},
     op::random_sample::KVPair,
 };
+pub use encoder::{model_from_env, qw2vl_infer};
 use operators::cuda::{ContextSpore, CurrentCtx, DevMemSpore, EventSpore, Stream};
 use std::collections::BTreeMap;
 use tokeneer::utok;

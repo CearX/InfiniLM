@@ -73,6 +73,8 @@ pub struct Progress {
 
 pub(crate) fn engine(
     llama: LLaMA<Tensor<&[u8], 2>>,
+    multimodal: bool,
+    mrope_3d_pos_ids: Option<Vec<u32>>,
     eos: utok,
     workers: &[(c_int, Option<Arc<Progress>>)],
     commands: Receiver<Command>,
@@ -82,6 +84,8 @@ pub(crate) fn engine(
     if let &[(gpu, progress)] = &workers {
         return mono(
             llama,
+            multimodal,
+            mrope_3d_pos_ids,
             eos,
             Device::new(*gpu),
             progress.clone(),
@@ -149,6 +153,8 @@ pub(crate) fn engine(
 
 fn mono(
     mut llama: LLaMA<Tensor<&[u8], 2>>,
+    multimodal: bool,
+    mrope_3d_pos_ids: Option<Vec<u32>>,
     eos: utok,
     dev: Device,
     progress: Option<Arc<Progress>>,
@@ -175,9 +181,16 @@ fn mono(
         task_box: Default::default(),
         chunked_prefill_len: CHUNKED_PREFILL_LEN,
     }
-    .lead(llama, eos, output_head, commands, outputs, |ctx| {
-        Handle::new(ctx)
-    })
+    .lead(
+        llama,
+        multimodal,
+        mrope_3d_pos_ids,
+        eos,
+        output_head,
+        commands,
+        outputs,
+        |ctx| Handle::new(ctx),
+    )
 }
 
 #[derive(Clone)]
@@ -204,6 +217,8 @@ impl<T: IntoIterator<Item = usize>> Worker<T> {
     fn lead(
         self,
         llama: LLaMA<Tensor<&[u8], 2>>,
+        multimodal: bool,
+        mrope_3d_pos_ids: Option<Vec<u32>>,
         eos: utok,
         output_head: nn::OutputHead<Tensor<&[u8], 2>>,
         commands: Receiver<Command>,
@@ -228,6 +243,7 @@ impl<T: IntoIterator<Item = usize>> Worker<T> {
             let mut handle = handle(ctx);
             let mut models = ModelGroup::new(
                 llama,
+                multimodal,
                 dist,
                 progress,
                 config,
@@ -249,9 +265,17 @@ impl<T: IntoIterator<Item = usize>> Worker<T> {
             const BUF_LEVEL: usize = 3;
             let mut events: [Event; BUF_LEVEL] = std::array::from_fn(|_| stream.record());
             let mut tok_buf = BufN::<utok>::new(len, BUF_LEVEL, ctx);
-            let mut pos_buf = BufN::<upos>::new(len, BUF_LEVEL, ctx);
+            let mut pos_buf = BufN::<upos>::new(len * 3, BUF_LEVEL, ctx);
             let mut out_idx_buf = BufN::<utok>::new(len, BUF_LEVEL, ctx);
             let mut fast_embd_buf = BufN::<(utok, utok)>::new(len, BUF_LEVEL, ctx);
+
+            let (mut pos_ids, mut current_pos_id) = if multimodal {
+                let last_pos_id = *mrope_3d_pos_ids.as_ref().unwrap().last().unwrap();
+                (mrope_3d_pos_ids, Some(last_pos_id + 1))
+            } else {
+                (None, None)
+            };
+
             if outputs.send(Output::Ready).is_ok() {
                 while let Ok(removed) = manager.receive(&commands, &outputs) {
                     // 处理已移除会话
@@ -288,13 +312,39 @@ impl<T: IntoIterator<Item = usize>> Worker<T> {
                     let out_idx = out_idx(&reqs, output.iter().map(|(_, len)| *len));
                     events[out_idx_buf.index()].synchronize();
                     tok_buf.save(&tokens);
-                    pos_buf.save(&pos(&reqs));
+                    if multimodal {
+                        // 新增：decode 阶段 pos_id 递增生成
+                        let mut cur = current_pos_id.unwrap();
+                        for req in &reqs {
+                            for i in 0..req.seq {
+                                pos_ids.as_mut().unwrap().push(cur + i as upos);
+                                pos_ids.as_mut().unwrap().push(cur + i as upos);
+                                pos_ids.as_mut().unwrap().push(cur + i as upos);
+                            }
+                            cur += req.seq as upos;
+                        }
+                        pos_buf.save(&pos_ids.as_ref().unwrap());
+                        // 更新 pos_id 计数器，为下次 decode 做准备
+                        let total_new_tokens: usize = reqs.iter().map(|req| req.seq).sum();
+                        current_pos_id = Some(current_pos_id.unwrap() + total_new_tokens as upos);
+                    } else {
+                        pos_buf.save(&pos(&reqs));
+                    }
                     out_idx_buf.save(&out_idx);
                     fast_embd_buf.save(&fast_map);
                     events[out_idx_buf.index()] = stream.record();
                     // 加载输入
-                    let (key, tok) =
-                        models.load_inputs(&mut handle, tokens.len(), &tok_buf, &pos_buf, &stream);
+                    let (key, tok) = if multimodal {
+                        models.load_inputs_qw2vl_llm(
+                            &mut handle,
+                            tokens.len(),
+                            &tok_buf,
+                            &pos_buf,
+                            &stream,
+                        )
+                    } else {
+                        models.load_inputs(&mut handle, tokens.len(), &tok_buf, &pos_buf, &stream)
+                    };
                     // 快速启动路径
                     fast_embd.launch(
                         tok,

@@ -1,16 +1,16 @@
 use super::{Handle, ModuleKey, Operator, cuda_type};
 use crate::utils::{destruct, dims, offset_ptr, strides};
 use nn::{
-    Tensor,
+    Arg, Tensor,
     digit_layout::{DigitLayout, types},
 };
 use operators::cuda::{Stream, VirByte, params};
 use std::ffi::c_uint;
 
 #[allow(dead_code)]
-pub struct MRope;
+pub struct MRope3d;
 
-impl Operator for MRope {
+impl Operator for MRope3d {
     fn launch<'a, const N: usize>(
         handle: &mut Handle,
         arg: Option<nn::Arg>,
@@ -18,7 +18,21 @@ impl Operator for MRope {
         outputs: impl IntoIterator<Item = Tensor<*const VirByte, N>>,
         stream: &Stream,
     ) {
-        assert!(arg.is_none());
+        let Some(Arg::Arr(mrope_section)) = arg else {
+            panic!()
+        };
+        let mrope_section = mrope_section
+            .into_iter()
+            .map(|x| x.to_usize() as u32)
+            .collect::<Vec<u32>>();
+        let mrope_section_acc = mrope_section
+            .iter()
+            .scan(0, |acc, x| {
+                *acc += x;
+                Some(*acc)
+            })
+            .collect::<Vec<u32>>();
+        let mrope_section = stream.from_host(mrope_section_acc.as_slice());
 
         destruct!([x, pos, sin, cos] = inputs);
         destruct!([y] = outputs);
@@ -26,18 +40,18 @@ impl Operator for MRope {
         //检查dim
         dims!([n, dh_mut_dhead] = x);
         dims!([n2, dim] = pos);
-        dims!([nctx, dh_4] = sin);
-        dims!([nctx2, dh_4_] = cos);
+        dims!([nctx, dh_2] = sin);
+        dims!([nctx2, dh_2_] = cos);
         dims!([n3, dh_mut_dhead_] = y);
 
-        assert_eq!(dim, 2); // 2d pos_ids
+        assert_eq!(dim, 3); // 3d pos_ids
         assert_eq!(n, n2);
         assert_eq!(n, n3);
         assert_eq!(dh_mut_dhead, dh_mut_dhead_);
-        assert_eq!(dh_4, dh_4_);
+        assert_eq!(dh_2, dh_2_);
         assert_eq!(nctx, nctx2);
 
-        let dh = dh_4 * 4;
+        let dh = dh_2 * 2;
         let d_head = dh_mut_dhead / dh;
         assert_eq!(dh_mut_dhead % dh, 0);
 
@@ -75,13 +89,13 @@ impl Operator for MRope {
         let nh_h = d_head / nh_l;
 
         let key = [
-            ModuleKey::Text("mrope"),
+            ModuleKey::Text("mrope-3d"),
             ModuleKey::Type(dt_t),
             ModuleKey::Type(dt_p),
         ]
         .into_iter();
         let module = handle.compile(key.collect(), || code(dt_p, dt_t));
-        let kernel = module.get_kernel(c"mrope");
+        let kernel = module.get_kernel(c"mrope_3d");
 
         let params = params![
             offset_ptr(&y),
@@ -92,7 +106,8 @@ impl Operator for MRope {
             stride_head_x,
             offset_ptr(&pos),
             offset_ptr(&sin),
-            offset_ptr(&cos)
+            offset_ptr(&cos),
+            mrope_section.as_ptr() as *const u32
         ];
 
         // dim3 grid(nh_h, n);
@@ -110,19 +125,19 @@ impl Operator for MRope {
 }
 
 fn code(tp: DigitLayout, ta: DigitLayout) -> String {
-    const CODE: &str = include_str!("mrope.cuh");
+    const CODE: &str = include_str!("mrope_3d.cuh");
     let ta = cuda_type(ta);
     let tp = cuda_type(tp);
 
     // mrope操作直接使用padding模板函数
     let body = format!(
-        "padding<{tp}, {ta}>(y, stride_token_y, stride_head_y, x, stride_token_x, stride_head_x, pos, sin_table, cos_table)"
+        "padding<{tp}, {ta}>(y, stride_token_y, stride_head_y, x, stride_token_x, stride_head_x, pos, sin_table, cos_table, mrope_section)"
     );
 
     let code = format!(
         r#"{CODE}
 
-extern "C" __global__ void mrope(
+extern "C" __global__ void mrope_3d(
     {ta} *__restrict__ y,
     int const stride_token_y,
     int const stride_head_y,
@@ -131,7 +146,8 @@ extern "C" __global__ void mrope(
     int const stride_head_x,
     {tp} const *__restrict__ pos,
     float const *__restrict__ sin_table,
-    float const *__restrict__ cos_table
+    float const *__restrict__ cos_table,
+    {tp} const *__restrict__ mrope_section
 ){{
     {body};
 }}"#

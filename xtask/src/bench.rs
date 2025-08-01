@@ -29,7 +29,7 @@ impl BenchArgs {
         let mut prompt = prompt.unwrap_or("Once upon a time,".into());
         let batch = batch.unwrap_or(1);
 
-        let mut service = Service::new(base.model, &gpus, !base.no_cuda_graph);
+        let mut service = Service::new(base.model, None, None, false, &gpus, !base.no_cuda_graph);
         progress_bar(&mut service);
 
         if use_template {

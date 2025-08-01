@@ -3,13 +3,16 @@ mod add4d;
 #[cfg(nccl)]
 mod all_reduce;
 mod embedding;
+mod embedding_qw2vl;
 mod fast_embedding;
 mod gelu;
 mod layer_norm;
 mod linear;
 mod mrope;
+mod mrope_3d;
 mod rms_norm;
 mod rope;
+mod silu;
 mod swiglu;
 
 use crate::handle::Handle;
@@ -26,13 +29,16 @@ pub use add4d::Add4d;
 #[cfg(nccl)]
 pub use all_reduce::AllReduce;
 pub use embedding::Embedding;
+pub use embedding_qw2vl::EmbeddingQw2vl;
 pub use fast_embedding::FastEmbedding;
 pub use gelu::Gelu;
 pub use layer_norm::LayerNorm;
 pub use linear::Linear;
 pub use mrope::MRope;
+pub use mrope_3d::MRope3d;
 pub use rms_norm::RmsNorm;
 pub use rope::Rope;
+pub use silu::Silu;
 pub use swiglu::Swiglu;
 
 pub trait Operator {

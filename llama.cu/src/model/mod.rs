@@ -1,6 +1,7 @@
 ﻿mod chat_template;
 pub(crate) mod image;
 mod llama;
+pub(crate) mod qw2vl_llm;
 pub(crate) mod qw2vl_mmproj;
 
 use crate::utils::{Blob, Data};
@@ -15,6 +16,8 @@ use std::{collections::HashMap, fmt::Debug, fs::File, path::Path, thread};
 pub(crate) use chat_template::ChatTemplate;
 
 pub use chat_template::Message;
+pub use image::image_from_env;
+pub use qw2vl_mmproj::build_3d_pos_ids;
 
 /// GGuf 模型，可能来自多个分片文件。
 pub(crate) struct GGufModel<'a> {
