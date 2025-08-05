@@ -1,7 +1,7 @@
 use super::{Handle, ModuleKey, Operator, cuda_type, move_type};
 use crate::utils::{destruct, dims, offset_ptr};
 use nn::{Arg, Tensor, digit_layout::DigitLayout};
-use operators::cuda::{DevByte, Stream, VirByte, params};
+use operators::cuda::{DevByte, Stream, VirByte, memcpy_h2d, params};
 use std::ffi::c_uint;
 
 pub struct EmbeddingQw2vl;
@@ -14,6 +14,8 @@ impl Operator for EmbeddingQw2vl {
         outputs: impl IntoIterator<Item = Tensor<*const VirByte, N>>,
         stream: &Stream,
     ) {
+        stream.synchronize();
+
         let Some(Arg::Arr(img_info)) = arg else {
             panic!()
         };
@@ -72,21 +74,21 @@ impl Operator for EmbeddingQw2vl {
         if img_token_len > 0 {
             let src_slice = unsafe {
                 std::slice::from_raw_parts(
-                    offset_ptr(&img_embd).cast::<DevByte>(),
-                    img_token_len * tval.nbytes(),
+                    offset_ptr(&img_embd).cast::<u8>(),
+                    img_token_len * d * tval.nbytes(),
                 )
             };
 
             let dst_slice = unsafe {
                 std::slice::from_raw_parts_mut(
                     (offset_ptr(&x).cast::<DevByte>().cast_mut())
-                        .add(img_start_pos * tval.nbytes()),
-                    img_token_len * tval.nbytes(),
+                        .add(img_start_pos * d * tval.nbytes()),
+                    img_token_len * d * tval.nbytes(),
                 )
             };
 
             // 3. 执行内存复制
-            stream.memcpy_d2d(dst_slice, src_slice);
+            memcpy_h2d(dst_slice, src_slice);
         }
     }
 }

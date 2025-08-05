@@ -77,7 +77,7 @@ struct ModelComponents {
 impl Service {
     pub fn new(
         model: impl AsRef<Path>,
-        img_info: Option<[u32; 3]>,
+        img_info: Option<[usize; 3]>,
         mrope_3d_pos_ids: Option<Vec<u32>>,
         multimodal: bool,
         gpus: &[c_int],
@@ -109,8 +109,8 @@ impl Service {
             let chat_template = gguf.chat_template(&tokenizer);
             let cache_template = gguf.lm_kv_cache();
             let eos = meta![gguf => tokenizer_ggml_eos_token_id];
+            println!("DEBUG: EOS token = {}", eos);
 
-            println!("img_info: {:?}", img_info);
             once_.get_or_init(|| ModelComponents {
                 tokenizer,
                 chat_template,
@@ -118,7 +118,6 @@ impl Service {
                 eos,
             });
             drop(once_);
-            println!("img_info: {:?}", img_info);
 
             let llama = gguf.llama(img_info);
             engine(
@@ -249,6 +248,8 @@ impl Service {
                     if self.forbid.contains(&id) {
                         continue;
                     }
+                    // 输出每次生成的token
+                    println!("{:?}", toks);
                     if let Some((len, _)) =
                         toks.iter().enumerate().find(|(_, t)| **t == components.eos)
                     {

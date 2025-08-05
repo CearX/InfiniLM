@@ -1,6 +1,5 @@
 use super::{CacheParts, Progress, model::ModelExec, upos};
-use crate::op::EmbeddingQw2vl;
-use crate::{batch::Req, handle::Handle, load::load_weight, memory::MemPages, utils::offset_ptr};
+use crate::{batch::Req, handle::Handle, load::load_weight, memory::MemPages};
 use nn::{
     Distribution, Graph, GraphBuilder, LLaMA, NNGraph, Qwen2VLmmproj, Tensor, TensorMeta,
     digit_layout::types, op,

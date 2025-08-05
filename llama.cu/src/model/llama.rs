@@ -9,7 +9,7 @@ use nn::{
 
 impl GGufModel<'_> {
     /// 构造 llama-like 模型
-    pub fn llama(&self, img_info: Option<[u32; 3]>) -> nn::LLaMA<Tensor<&[u8], 2>> {
+    pub fn llama(&self, img_info: Option<[usize; 3]>) -> nn::LLaMA<Tensor<&[u8], 2>> {
         let arch = meta![self => general_architecture];
         let dt_bias = match arch {
             "llama" | "qwen3" => None,

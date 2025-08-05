@@ -30,28 +30,48 @@ impl GenerateArgs {
         let max_steps = base.max_steps();
         let sample_args = base.sample_args();
         let mut prompt = if multimodal {
-            prompt.unwrap_or("Describe this image.".into())
+            prompt.unwrap_or(
+                "<|im_start|>system
+You are a helpful assistant.<|im_end|>
+<|im_start|>user
+<|vision_start|><|image_pad|><|vision_end|>Describe this image.<|im_end|>
+<|im_start|>assistant
+"
+                .into(),
+            )
         } else {
             prompt.unwrap_or("Once upon a time,".into())
         };
 
-        let (img_token_len, img_info, mrope_3d_pos_ids) = if multimodal {
+        // 保持图像嵌入数据的生命周期，确保指针在推理过程中保持有效
+        let img_embd_holder = if multimodal {
             let model = model_from_env();
             let image = image_from_env();
-            let (img_embd, img_info_0) = qw2vl_infer(model, image, true);
-            let [t, h, w, d_patch] = img_info_0;
+            let (img_embd, img_info_0) = qw2vl_infer(model, image, false);
+            let [t, h, w, d_patch, img_token_len] = img_info_0;
             let mrope_3d_pos_ids = build_3d_pos_ids(t, h, w, d_patch, 15, 10);
-            let img_token_len = img_embd.as_ref().shape()[0];
             let img_info = [
-                img_embd.as_ref().get() as *const _ as u32,
-                img_token_len as u32,
-                14u32, // image_token start position
+                img_embd.as_ptr() as *const u8 as usize,
+                img_token_len,
+                15, // image_token start position
             ];
+            println!("img_info: {:?}", img_info);
 
-            (Some(img_token_len), Some(img_info), Some(mrope_3d_pos_ids))
+            Some((img_embd, img_token_len, img_info, mrope_3d_pos_ids))
         } else {
-            (None, None, None)
+            None
         };
+
+        let (img_token_len, img_info, mrope_3d_pos_ids) =
+            if let Some((_, img_token_len, img_info, mrope_3d_pos_ids)) = &img_embd_holder {
+                (
+                    Some(*img_token_len),
+                    Some(*img_info),
+                    Some(mrope_3d_pos_ids.clone()),
+                )
+            } else {
+                (None, None, None)
+            };
 
         let mut service = Service::new(
             base.model,
@@ -76,6 +96,9 @@ impl GenerateArgs {
             cache: term.new_cache(),
         };
         let mut tokens = term.tokenize(&prompt);
+        println!("tokens: {:?}", tokens);
+        println!("tokens.len(): {:?}", tokens.len());
+        println!("img_token_len: {:?}", img_token_len);
         // 扩充图像占位符到图像嵌入长度
         if multimodal {
             let placeholder_token: u32 = 151655;

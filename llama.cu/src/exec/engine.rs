@@ -265,7 +265,9 @@ impl<T: IntoIterator<Item = usize>> Worker<T> {
             const BUF_LEVEL: usize = 3;
             let mut events: [Event; BUF_LEVEL] = std::array::from_fn(|_| stream.record());
             let mut tok_buf = BufN::<utok>::new(len, BUF_LEVEL, ctx);
-            let mut pos_buf = BufN::<upos>::new(len * 3, BUF_LEVEL, ctx);
+            // 对于multimodal模式，pos_buf需要更大的容量来容纳动态增长的pos_ids
+            let pos_buf_size = if multimodal { len * 9 } else { len };
+            let mut pos_buf = BufN::<upos>::new(pos_buf_size, BUF_LEVEL, ctx);
             let mut out_idx_buf = BufN::<utok>::new(len, BUF_LEVEL, ctx);
             let mut fast_embd_buf = BufN::<(utok, utok)>::new(len, BUF_LEVEL, ctx);
 

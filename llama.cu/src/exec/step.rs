@@ -1,7 +1,7 @@
 ﻿use crate::{
     batch::Req,
     handle::Handle,
-    op::{self, EmbeddingQw2vl, Operator as _},
+    op::{self, Operator as _},
     utils::{Blob, destruct, layout, offset_ptr},
 };
 use ndarray_layout::{ArrayLayout, Endian};

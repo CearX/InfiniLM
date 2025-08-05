@@ -1,3 +1,4 @@
+use crate::utils::Blob;
 use crate::{
     exec::{
         engine::BufN,
@@ -5,19 +6,17 @@ use crate::{
         upos,
     },
     handle::Handle,
-    model::{
-        image::qw2vl_image_preprocess,
-        qw2vl_mmproj::{build_3d_pos_ids, build_pos_ids},
-    },
+    model::{image::qw2vl_image_preprocess, qw2vl_mmproj::build_pos_ids},
 };
 use nn::{Distribution, Tensor};
+use operators::cuda::VirByte;
 use operators::{
     Operator as _,
     attention::common_cpu::Operator as AttnCpu,
     // attention::cuda::Operator as Attn,
     common_cpu::Cpu,
     conv::cuda::ConvIm2Col,
-    cuda::{Device, Gpu, VirByte},
+    cuda::{DevByte, Device, Gpu, memcpy_d2h},
     rearrange::cuda::Operator as Rearrange,
 };
 use std::{env::var_os, path::PathBuf, time::Instant};
@@ -35,7 +34,7 @@ pub fn qw2vl_infer(
     model_path: PathBuf,
     image: PathBuf,
     use_cuda_graph: bool,
-) -> (Tensor<*const VirByte, 2>, [usize; 4]) {
+) -> (Vec<u8>, [usize; 5]) {
     use crate::model::{GGufModel, map_files};
     use operators::cuda;
     // 初始化 CUDA
@@ -115,8 +114,20 @@ pub fn qw2vl_infer(
         let reqs = vec![]; // QW2VLMMProj 不需要 cache
         let x = models.launch(key, &reqs, &mut handle, &stream);
         // utils::fmt(&_x, stream.ctx());
+        let img_token_len = x.shape()[0];
+        let d2h = |tensor: &Tensor<*const VirByte, 2>| {
+            let mem_range = tensor.layout().data_range();
+            let ptr = tensor.get().cast::<DevByte>();
+            let len = *mem_range.end() as usize + tensor.dt().nbytes();
+            let slice = unsafe { std::slice::from_raw_parts(ptr, len) };
+            let mut host = Blob::new(len);
+            memcpy_d2h(&mut host, slice);
+            tensor.as_ref().map(|_| host)
+        };
+        let x = d2h(&x);
+        let x = x.as_deref().map(|t| t.to_vec()).take();
         println!("encode {n} x {h} x {w} image in {:?}", time.elapsed());
-        (x, [n, h, w, d_patch])
+        (x, [n, h, w, d_patch, img_token_len])
     })
 }
 
