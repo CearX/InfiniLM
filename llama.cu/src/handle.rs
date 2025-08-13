@@ -35,7 +35,7 @@ impl<'ctx> Handle<'ctx> {
         }
     }
 
-    pub fn compile(&mut self, key: Box<[ModuleKey]>, code: impl FnOnce() -> String) -> &Module {
+    pub fn compile(&mut self, key: Box<[ModuleKey]>, code: impl FnOnce() -> String) -> &Module<'_> {
         self.modules.entry(key).or_insert_with(|| {
             let program = Rtc::new()
                 .arch(self.ctx.dev().compute_capability())

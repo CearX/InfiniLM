@@ -98,7 +98,7 @@ impl App {
         frame.render_widget(self.state_bar(), bottom);
     }
 
-    fn sess_list(&self) -> List {
+    fn sess_list(&self) -> List<'_> {
         let mut title = Line::from("sessions").bold();
         if self.focus.select() {
             title = title.fg(Color::Black).bg(Color::LightBlue);
@@ -144,17 +144,17 @@ impl App {
             text.push_str(msg);
             text.push('\n')
         }
-        if let State::User = self.state() {
-            if let Focus::Main(cursor) = &mut self.focus {
-                let time = Instant::now();
-                let duration = time.duration_since(*cursor);
-                if duration < Duration::from_millis(500) {
-                } else if duration < Duration::from_secs(1) {
-                    text.pop();
-                    text.push('_')
-                } else {
-                    *cursor = time
-                }
+        if let State::User = self.state()
+            && let Focus::Main(cursor) = &mut self.focus
+        {
+            let time = Instant::now();
+            let duration = time.duration_since(*cursor);
+            if duration < Duration::from_millis(500) {
+            } else if duration < Duration::from_secs(1) {
+                text.pop();
+                text.push('_')
+            } else {
+                *cursor = time
             }
         }
 
@@ -182,7 +182,7 @@ impl App {
         frame.render_stateful_widget(scrollbar, area, &mut scrollbar_state);
     }
 
-    fn state_bar(&self) -> Paragraph {
+    fn state_bar(&self) -> Paragraph<'_> {
         let title = Line::from("state").bold().blue();
         let text = format!(
             "msgs: {}, pos: {}/{}/{}",
@@ -199,12 +199,11 @@ impl App {
             State::User => Duration::from_millis(250),
             State::Assistant => Duration::from_millis(5),
         };
-        if event::poll(interval)? {
-            if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press {
-                    self.on_key_event(key)
-                }
-            }
+        if event::poll(interval)?
+            && let Event::Key(key) = event::read()?
+            && key.kind == KeyEventKind::Press
+        {
+            self.on_key_event(key)
         }
         Ok(())
     }
