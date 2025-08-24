@@ -2,6 +2,8 @@
 mod engine_manager;
 mod group;
 mod kv_cache;
+mod mamba;
+mod mamba_cache;
 mod model;
 mod output_head;
 mod sample_manager;

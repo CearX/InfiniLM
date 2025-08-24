@@ -1,4 +1,8 @@
-﻿use super::step::Step;
+﻿use super::mamba_cache::MambaCache;
+use super::step::Step;
+use crate::op::Operator;
+use crate::op::conv1d::Conv1dWriteStateStep;
+use crate::op::scan::SelectiveScanWithWriteback;
 use crate::{
     batch::Req,
     handle::Handle,
@@ -95,6 +99,11 @@ impl ModelExec<'_> {
         as_mapped(&self.inputs[1])
     }
 
+    /// 获取第 idx 个全局输入缓冲区用于 Mamba
+    pub fn input_buf_at(&mut self, idx: usize) -> &mut [DevByte] {
+        as_mapped(&self.inputs[idx])
+    }
+
     pub fn launch(
         &mut self,
         handle: &mut Handle,
@@ -115,6 +124,126 @@ impl ModelExec<'_> {
                 }
                 Step::Attention(box_) => handle.launch_attn(box_, reqs, stream),
                 Step::Exec(exec) => handle.launch_nn_exec(exec, stream),
+            }
+        }
+        destruct!([x] = self.outputs.clone());
+        x
+    }
+
+    // 捕获 conv 和 ssm exec, 更新 & 使用 mamba cache
+    pub fn launch_with_mamba_cache(
+        &mut self,
+        handle: &mut Handle,
+        cache: &mut MambaCache,
+        stream: &Stream,
+    ) -> Tensor<*const VirByte, 2> {
+        for exec in &self.execs {
+            match exec {
+                Step::Graph(graph, stub) => {
+                    stream.launch_graph(graph);
+                    if !stub.is_empty() {
+                        for t in stub {
+                            utils::fmt(t, stream.ctx())
+                        }
+                        std::process::exit(0);
+                    }
+                }
+                Step::Attention(_box_) => {}
+                Step::Exec(exec) => {
+                    let ty = &exec.node.value.name;
+                    if ty == "mamba-causal-conv1d" || ty == "mamba-selective-scan" {
+                        // 解析层号：形如 "Ω.blk{N}.xxx"
+                        let name = &exec.node.name;
+                        let iblk = {
+                            let prefix = "Ω.blk";
+                            if let Some(pos) = name.find(prefix) {
+                                let mut i = pos + prefix.len();
+                                let bytes = name.as_bytes();
+                                let mut val: usize = 0;
+                                while i < bytes.len() {
+                                    let c = bytes[i] as char;
+                                    if let Some(d) = c.to_digit(10) {
+                                        val = val * 10 + d as usize;
+                                        i += 1;
+                                    } else {
+                                        break;
+                                    }
+                                }
+                                val
+                            } else {
+                                panic!("missing layer index in node name: {}", name)
+                            }
+                        };
+
+                        if ty == "mamba-causal-conv1d" {
+                            let n = exec.inputs[0].shape()[0];
+                            if n == 1 {
+                                // decode: 就地更新
+                                let inputs = [
+                                    exec.inputs[0].clone(),  // x_t [1,d]
+                                    exec.inputs[1].clone(),  // w [d,k]
+                                    exec.inputs[2].clone(),  // b [d]
+                                    cache.conv_tensor(iblk), // state [d,k] (F32)
+                                ];
+                                let outputs = [exec.outputs[0].clone()];
+
+                                crate::op::CausalConv1dStep::launch(
+                                    handle, None, inputs, outputs, stream,
+                                );
+                            } else {
+                                // prefill: 更新状态再计算
+                                let inputs = [
+                                    exec.inputs[0].clone(),  // x [n,d]
+                                    cache.conv_tensor(iblk), // state [d,k]
+                                ];
+                                Conv1dWriteStateStep::launch(
+                                    handle,
+                                    None,
+                                    inputs,
+                                    std::iter::empty(),
+                                    stream,
+                                );
+
+                                handle.launch_nn_exec(exec, stream);
+                            }
+                        } else {
+                            let n = exec.inputs[0].shape()[0];
+                            if n == 1 {
+                                // decode
+                                let inputs = [
+                                    exec.inputs[0].clone(), // u_t [1,d]
+                                    exec.inputs[1].clone(), // delta_t [1,d]
+                                    exec.inputs[2].clone(), // A [d,n_state]
+                                    exec.inputs[3].clone(), // B [1,n_state]
+                                    exec.inputs[4].clone(), // C [1,n_state]
+                                    exec.inputs[5].clone(), // D [d]
+                                    cache.ssm_tensor(iblk), // state [d,n_state] (F32)
+                                ];
+                                let outputs = [exec.outputs[0].clone()];
+                                SelectiveScanWithWriteback::launch(
+                                    handle, None, inputs, outputs, stream,
+                                );
+                            } else {
+                                // prefill
+                                let inputs = [
+                                    exec.inputs[0].clone(), // u [n,d]
+                                    exec.inputs[1].clone(), // delta [n,d]
+                                    exec.inputs[2].clone(), // A [d,n_state]
+                                    exec.inputs[3].clone(), // B [n,n_state]
+                                    exec.inputs[4].clone(), // C [n,n_state]
+                                    exec.inputs[5].clone(), // D [d]
+                                    cache.ssm_tensor(iblk), // state [d,n_state]
+                                ];
+                                let outputs = [exec.outputs[0].clone()];
+                                SelectiveScanWithWriteback::launch(
+                                    handle, None, inputs, outputs, stream,
+                                );
+                            }
+                        }
+                    } else {
+                        handle.launch_nn_exec(exec, stream);
+                    }
+                }
             }
         }
         destruct!([x] = self.outputs.clone());

@@ -100,7 +100,7 @@ dependencies = [
 [[package]]
 name = "arg"
 version = "0.0.0"
-source = "git+https://github.com/YdrMaster/InfiniNN?rev=fa8aaf6#fa8aaf6361947ced9d3e624a72336ccfe67aae79"
+source = "git+https://github.com/CearX/InfiniNN?rev=6caef2#6caef2f2f4365932bb2c32e9dc1b99e9521c3dbf"
 dependencies = [
  "symbolic-expr",
 ]
@@ -613,7 +613,7 @@ dependencies = [
 [[package]]
 name = "exec"
 version = "0.0.0"
-source = "git+https://github.com/YdrMaster/InfiniNN?rev=fa8aaf6#fa8aaf6361947ced9d3e624a72336ccfe67aae79"
+source = "git+https://github.com/CearX/InfiniNN?rev=6caef2#6caef2f2f4365932bb2c32e9dc1b99e9521c3dbf"
 dependencies = [
  "arg",
  "graph",
@@ -830,7 +830,7 @@ checksum = "0cc23270f6e1808e30a928bdc84dea0b9b4136a8bc82338574f23baf47bbd280"
 [[package]]
 name = "graph"
 version = "0.0.0"
-source = "git+https://github.com/YdrMaster/InfiniNN?rev=fa8aaf6#fa8aaf6361947ced9d3e624a72336ccfe67aae79"
+source = "git+https://github.com/CearX/InfiniNN?rev=6caef2#6caef2f2f4365932bb2c32e9dc1b99e9521c3dbf"
 
 [[package]]
 name = "h2"
@@ -1359,7 +1359,7 @@ dependencies = [
 [[package]]
 name = "mem"
 version = "0.0.0"
-source = "git+https://github.com/YdrMaster/InfiniNN?rev=fa8aaf6#fa8aaf6361947ced9d3e624a72336ccfe67aae79"
+source = "git+https://github.com/CearX/InfiniNN?rev=6caef2#6caef2f2f4365932bb2c32e9dc1b99e9521c3dbf"
 dependencies = [
  "arg",
  "exec",
@@ -1483,7 +1483,7 @@ checksum = "86a1db1a5ed8293057d401ebd96872cb881a3693d9b55379ae320f652aea3714"
 [[package]]
 name = "nn"
 version = "0.0.0"
-source = "git+https://github.com/YdrMaster/InfiniNN?rev=fa8aaf6#fa8aaf6361947ced9d3e624a72336ccfe67aae79"
+source = "git+https://github.com/CearX/InfiniNN?rev=6caef2#6caef2f2f4365932bb2c32e9dc1b99e9521c3dbf"
 dependencies = [
  "arg",
  "graph",
@@ -2384,7 +2384,7 @@ dependencies = [
 [[package]]
 name = "tokeneer"
 version = "0.1.0"
-source = "git+https://github.com/InfiniTensor/tokeneer?rev=c48f39f#c48f39f18bbe36a7f727f2f6f06db9c4eccc351a"
+source = "git+https://github.com/CearX/tokeneer.git?rev=2546d72#2546d72c0cb12bc15cd40a6ec06f7f9476010155"
 dependencies = [
  "fancy-regex",
  "ggus",

@@ -1,6 +1,8 @@
 ﻿mod add;
 #[cfg(nccl)]
 mod all_reduce;
+pub mod conv1d;
+mod element_mul;
 mod embedding;
 mod fast_embedding;
 mod gelu;
@@ -9,6 +11,8 @@ mod linear;
 mod mrope;
 mod rms_norm;
 mod rope;
+pub mod scan;
+mod silu;
 mod swiglu;
 
 use crate::handle::Handle;
@@ -22,6 +26,8 @@ pub mod random_sample;
 
 #[cfg(nccl)]
 pub use all_reduce::AllReduce;
+pub use conv1d::{CausalConv1dStep, Conv1d};
+pub use element_mul::ElementMul;
 pub use embedding::Embedding;
 pub use fast_embedding::FastEmbedding;
 pub use gelu::Gelu;
@@ -30,6 +36,8 @@ pub use linear::Linear;
 pub use mrope::MRope;
 pub use rms_norm::RmsNorm;
 pub use rope::Rope;
+pub use scan::SelectiveScanWithWriteback;
+pub use silu::Silu;
 pub use swiglu::Swiglu;
 
 pub trait Operator {

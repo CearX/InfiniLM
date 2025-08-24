@@ -8,9 +8,9 @@ cuda = { git = "https://github.com/YdrMaster/cuda-driver", rev = "6a97931" }
 cublas = { git = "https://github.com/YdrMaster/cuda-driver", rev = "6a97931" }
 nccl = { git = "https://github.com/YdrMaster/cuda-driver", rev = "6a97931" }
 flash-attn = { git = "https://github.com/YdrMaster/learn-flash-attn", rev = "616bbac" }
-nn = { git = "https://github.com/YdrMaster/InfiniNN", rev = "fa8aaf6" }
+nn = { git = "https://github.com/CearX/InfiniNN", rev = "6caef2"}
 ggus = { git = "https://github.com/InfiniTensor/gguf", rev = "23c362f" }
-tokeneer = { git = "https://github.com/InfiniTensor/tokeneer", rev = "c48f39f" }
+tokeneer = { git = "https://github.com/CearX/tokeneer.git", rev = "2546d72" }
 
 bytesize = "2.0"
 log.workspace = true

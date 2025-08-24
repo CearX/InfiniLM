@@ -118,10 +118,14 @@ impl<'ctx> Handle<'ctx> {
             "rms-norm" => launch!(RmsNorm),
             "layer-norm" => launch!(LayerNorm),
             "linear" => launch!(Linear),
+            "mamba-causal-conv1d" => launch!(Conv1d),
+            "mamba-selective-scan" => launch!(SelectiveScanWithWriteback),
             "rope" => launch!(Rope),
             "mrope" => launch!(MRope),
             "gelu" => launch!(Gelu),
             "swiglu" => launch!(Swiglu),
+            "silu" => launch!(Silu),
+            "element-mul" => launch!(ElementMul),
             #[cfg(nccl)]
             "all-reduce" => launch!(AllReduce),
             "empty" => {}
