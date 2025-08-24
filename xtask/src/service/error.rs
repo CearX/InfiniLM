@@ -8,6 +8,7 @@ pub(crate) enum Error {
     NotFound(NotFoundError),
     MsgNotSupported(MsgNotSupportedError),
     ModelNotFound(String),
+    InternalError(String),
 }
 
 #[derive(Serialize, Debug)]
@@ -42,6 +43,7 @@ impl Error {
             Self::NotFound(..) => StatusCode::NOT_FOUND,
             Self::MsgNotSupported(..) => StatusCode::BAD_REQUEST,
             Self::ModelNotFound(..) => StatusCode::NOT_FOUND,
+            Self::InternalError(..) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 
@@ -52,6 +54,7 @@ impl Error {
             Self::NotFound(e) => serde_json::to_string(&e).unwrap(),
             Self::MsgNotSupported(e) => serde_json::to_string(&e).unwrap(),
             Self::ModelNotFound(model) => format!("Model not found: {model}"),
+            Self::InternalError(msg) => format!("Internal server error: {msg}"),
         }
     }
 }
@@ -63,6 +66,7 @@ impl fmt::Display for Error {
             Error::NotFound(e) => write!(f, "Not Found: {} {}", e.method, e.uri),
             Error::MsgNotSupported(e) => write!(f, "Message type not supported: {:?}", e.message),
             Error::ModelNotFound(model) => write!(f, "Model not found: {model}"),
+            Error::InternalError(msg) => write!(f, "Internal error: {msg}"),
         }
     }
 }

@@ -8,7 +8,10 @@ mod response;
 use crate::{
     parse_gpus,
     service::{
-        openai::{chat_completion_response, chat_completion_response_stream, completion_response},
+        openai::{
+            chat_completion_response, chat_completion_response_stream, completion_response,
+            completion_response_with_logprobs,
+        },
         response::text_stream,
     },
 };
@@ -28,6 +31,7 @@ use openai::create_models;
 use openai_struct::{CreateChatCompletionRequest, CreateCompletionRequest};
 use response::error;
 use response::json;
+use serde_json::Value;
 use std::{
     collections::HashMap,
     sync::atomic::{AtomicUsize, Ordering::SeqCst},
@@ -66,6 +70,29 @@ pub struct ServiceArgs {
     repetition_penalty: Option<f32>,
     #[clap(long)]
     think: bool,
+}
+
+#[derive(Args)]
+pub struct MambaServiceArgs {
+    model: String,
+
+    #[clap(short, long)]
+    port: u16,
+    #[clap(long)]
+    no_cuda_graph: bool,
+
+    #[clap(long)]
+    name: Option<String>,
+    #[clap(long)]
+    gpus: Option<String>,
+    #[clap(long)]
+    max_tokens: Option<usize>,
+    #[clap(long)]
+    temperature: Option<f32>,
+    #[clap(long)]
+    top_p: Option<f32>,
+    #[clap(long)]
+    repetition_penalty: Option<f32>,
 }
 
 #[derive(serde::Deserialize, Debug)]
@@ -191,7 +218,8 @@ impl HyperService<Request<Incoming>> for App {
                 let models = self.0.clone();
                 Box::pin(async move {
                     let whole_body = req.collect().await?.to_bytes();
-                    let req: CreateCompletionRequest = match serde_json::from_slice(&whole_body) {
+                    let mut req: CreateCompletionRequest = match serde_json::from_slice(&whole_body)
+                    {
                         Ok(req) => req,
                         Err(e) => return Ok(error(Error::WrongJson(e))),
                     };
@@ -204,13 +232,24 @@ impl HyperService<Request<Incoming>> for App {
                         }
                     };
                     let stream = req.stream.unwrap_or(true);
+
+                    // 测 ppl
+                    let echo = req.echo.unwrap_or(false);
+                    let logprobs = req.logprobs;
+                    let max_tokens = req.max_tokens.unwrap_or(16);
+                    let prompt_text = match &req.prompt {
+                        Value::String(s) => s.clone(),
+                        Value::Array(arr) => arr
+                            .iter()
+                            .filter_map(|v| v.as_str())
+                            .collect::<Vec<_>>()
+                            .join("\n"),
+                        _ => String::new(),
+                    };
+
                     let model = match models.get(&model_name) {
                         Some(model) => model,
                         None => return Ok(error(Error::ModelNotFound(model_name))),
-                    };
-                    let mut receiver = match model.complete(req) {
-                        Ok(receiver) => receiver,
-                        Err(e) => return Ok(error(e)),
                     };
 
                     static ID: AtomicUsize = AtomicUsize::new(0);
@@ -219,6 +258,19 @@ impl HyperService<Request<Incoming>> for App {
                         .duration_since(UNIX_EPOCH)
                         .unwrap()
                         .as_secs() as i32;
+
+                    // 特殊处理：PPL 测试 (max_tokens=0, echo=true, logprobs 存在)
+                    // 修改策略：让PPL请求也走正常推理流程，但强制max_tokens=1来触发logprobs计算
+                    let is_ppl_request = max_tokens == 0 && echo && logprobs.is_some();
+                    if is_ppl_request {
+                        // 修改请求参数：设置max_tokens=1来触发推理，但稍后我们只返回prompt的logprobs
+                        req.max_tokens = Some(1);
+                    }
+
+                    let mut receiver = match model.complete(req) {
+                        Ok(receiver) => receiver,
+                        Err(e) => return Ok(error(e)),
+                    };
 
                     if stream {
                         return Ok(text_stream(UnboundedReceiverStream::new(receiver).map(
@@ -259,7 +311,55 @@ impl HyperService<Request<Incoming>> for App {
                         }
                     }
 
-                    let response = completion_response(id, created, model_name, content_, reason_);
+                    // 检查是否是PPL请求，如果是，返回logprobs响应
+                    if is_ppl_request {
+                        // 尝试从全局存储获取logprobs
+                        if let Some(stored_logprobs) = llama_cu::take_stored_logprobs() {
+                            // 分词以获取token信息
+                            let tokens = model.tokenize(&prompt_text);
+                            let mut token_strings = Vec::new();
+                            let mut text_offsets = Vec::new();
+                            let mut current_offset = 0i32;
+
+                            for &token in &tokens {
+                                let token_text = model.decode(&[token]);
+                                token_strings.push(token_text.clone());
+                                text_offsets.push(current_offset);
+                                current_offset += token_text.len() as i32;
+                            }
+
+                            // 只返回prompt部分的logprobs（不包括生成的内容）
+                            let prompt_logprobs = if stored_logprobs.len() >= tokens.len() {
+                                stored_logprobs[..tokens.len()].to_vec()
+                            } else {
+                                stored_logprobs
+                            };
+
+                            let response = completion_response_with_logprobs(
+                                id,
+                                created,
+                                model_name,
+                                prompt_text.clone(),
+                                reason_,
+                                Some(prompt_logprobs),
+                                Some(token_strings),
+                                Some(text_offsets),
+                            );
+                            return Ok(json(response));
+                        } else {
+                            return Ok(error(Error::InternalError(
+                                "No logprobs were computed during inference".to_string(),
+                            )));
+                        }
+                    }
+
+                    // 正常响应
+                    let text_body = if echo {
+                        format!("{prompt_text}{content_}")
+                    } else {
+                        content_
+                    };
+                    let response = completion_response(id, created, model_name, text_body, reason_);
                     Ok(json(response))
                 })
             }
@@ -360,6 +460,61 @@ impl HyperService<Request<Incoming>> for App {
                 Box::pin(async move { Ok(error(msg)) })
             }
         }
+    }
+}
+
+impl MambaServiceArgs {
+    pub fn mamba_service(self) {
+        let Self {
+            model,
+            port,
+            no_cuda_graph,
+            name,
+            gpus,
+            max_tokens,
+            temperature,
+            top_p,
+            repetition_penalty,
+        } = self;
+
+        let model_name = name.unwrap_or_else(|| {
+            std::path::Path::new(&model)
+                .file_stem()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .to_string()
+        });
+
+        info!("启动 Mamba 服务: {}", model_name);
+        info!("模型路径: {}", model);
+        info!("端口: {}", port);
+
+        // 创建 Mamba 模型配置
+        let model_config = ModelConfig {
+            path: model,
+            gpus: Some(parse_gpus(gpus.as_deref())),
+            max_tokens,
+            temperature,
+            top_p,
+            repetition_penalty,
+            think: Some(false), // Mamba 暂时不支持 think 模式
+            blacklist: None,
+        };
+
+        info!("{}: {:?}", model_name, model_config);
+
+        // 创建模型和服务 - Mamba 不支持 CUDA Graph，强制禁用
+        let (model, service) = Model::new_mamba(model_config, false);
+        let model = Arc::new(model);
+        let handles = vec![(model.clone(), service)];
+        let models = [(model_name, model)].into();
+
+        // 启动服务
+        tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(start_infer_service(models, handles, port))
+            .unwrap()
     }
 }
 

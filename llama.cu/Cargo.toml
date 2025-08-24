@@ -19,6 +19,7 @@ serde.workspace = true
 memmap2 = "0.9"
 lru = "0.14"
 rand = "0.9"
+half = "2.3"
 minijinja = { version = "2.11", default-features = false, features = [
     "loader",
     "builtins",

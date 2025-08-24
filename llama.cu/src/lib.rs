@@ -8,8 +8,8 @@ mod op;
 mod utils;
 
 use cuda::{self, Device};
-use exec::{Command, KVCache, Output, Request, engine};
-use ggus::GGufMetaMapExt;
+use exec::{Command, KVCache, Output, Request, engine, mamba_engine};
+use ggus::{GGufMetaMap, GGufMetaMapExt};
 use log::info;
 use memory::MemPages;
 use model::{ChatTemplate, GGufModel, map_files};
@@ -32,8 +32,15 @@ use utils::meta;
 pub use crate::op::random_sample::SampleArgs;
 pub use batch::{Cache, Session, SessionId};
 pub use exec::Progress;
+pub use exec::take_stored_logprobs;
 pub use model::Message;
 pub use tokeneer::{TextBuf, utok};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModelType {
+    LLaMA,
+    Mamba,
+}
 
 pub struct Service {
     handle: Option<(Receiver<Output>, std::thread::JoinHandle<()>)>,
@@ -75,6 +82,19 @@ struct ModelComponents {
 
 impl Service {
     pub fn new(model: impl AsRef<Path>, gpus: &[c_int], use_cuda_grpah: bool) -> Self {
+        Self::new_with_model_type(model, gpus, use_cuda_grpah, None)
+    }
+
+    pub fn new_mamba(model: impl AsRef<Path>, gpus: &[c_int], use_cuda_grpah: bool) -> Self {
+        Self::new_with_model_type(model, gpus, use_cuda_grpah, Some(ModelType::Mamba))
+    }
+
+    fn new_with_model_type(
+        model: impl AsRef<Path>,
+        gpus: &[c_int],
+        use_cuda_grpah: bool,
+        model_type: Option<ModelType>,
+    ) -> Self {
         info!("start inference @gpu{gpus:?}");
         // 创建调度通道
         let (outputs, receiver) = mpsc::channel();
@@ -95,23 +115,66 @@ impl Service {
         let once_ = once.clone();
         let handle = std::thread::spawn(move || {
             let mut gguf = GGufModel::read(maps.iter().map(|x| &**x));
-            gguf.insert_rope_sin_cos();
-
             let tokenizer = Bpe::from_gguf(&gguf);
             let chat_template = gguf.chat_template(&tokenizer);
-            let cache_template = gguf.lm_kv_cache();
             let eos = meta![gguf => tokenizer_ggml_eos_token_id];
 
-            once_.get_or_init(|| ModelComponents {
-                tokenizer,
-                chat_template,
-                cache_template,
-                eos,
-            });
-            drop(once_);
+            // 检测模型类型
+            let arch = meta![gguf => general_architecture];
+            let model_type = match model_type {
+                Some(model_type) => model_type,
+                None => {
+                    if arch == "mamba" {
+                        ModelType::Mamba
+                    } else {
+                        ModelType::LLaMA
+                    }
+                }
+            };
 
-            let llama = gguf.llama();
-            engine(llama, eos, &workers, commands, outputs, use_cuda_grpah)
+            match model_type {
+                ModelType::LLaMA => {
+                    gguf.insert_rope_sin_cos();
+                    let cache_template = gguf.lm_kv_cache();
+                    once_.get_or_init(|| ModelComponents {
+                        tokenizer,
+                        chat_template,
+                        cache_template,
+                        eos,
+                    });
+                    drop(once_);
+
+                    let llama = gguf.llama();
+                    engine(llama, eos, &workers, commands, outputs, use_cuda_grpah)
+                }
+                ModelType::Mamba => {
+                    // Mamba 不需要 RoPE 和 KV cache,
+                    // kv cache 影响测 ppl, 此处设为 max_tokens
+                    let max_tokens = 1024;
+                    let cache_template = Tensor::from_dim_slice(
+                        nn::digit_layout::types::U64,
+                        [max_tokens, 2, 2, 4, 128],
+                    ); // [nctx, nblk, 2, nkvh, dh]
+                    once_.get_or_init(|| ModelComponents {
+                        tokenizer,
+                        chat_template,
+                        cache_template,
+                        eos,
+                    });
+                    drop(once_);
+
+                    let mamba = gguf.mamba();
+                    mamba_engine(
+                        mamba,
+                        &gguf,
+                        eos,
+                        &workers,
+                        commands,
+                        outputs,
+                        use_cuda_grpah,
+                    )
+                }
+            }
         });
         once.wait();
         Self {

@@ -1307,6 +1307,7 @@ dependencies = [
  "cuda-cc",
  "flash-attn",
  "ggus",
+ "half",
  "log",
  "lru 0.14.0",
  "memmap2",

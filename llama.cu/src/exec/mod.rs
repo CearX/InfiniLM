@@ -4,6 +4,7 @@ mod group;
 mod kv_cache;
 mod mamba;
 mod mamba_cache;
+mod mamba_engine;
 mod model;
 mod output_head;
 mod sample_manager;
@@ -24,6 +25,8 @@ type upos = u32;
 pub use engine::Progress;
 pub(crate) use engine::engine;
 pub(crate) use kv_cache::KVCache;
+pub(crate) use mamba_engine::mamba_engine;
+pub use mamba_engine::take_stored_logprobs;
 
 pub(crate) enum Command {
     ShutDown,

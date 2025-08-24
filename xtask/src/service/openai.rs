@@ -106,6 +106,19 @@ pub(crate) fn completion_response(
     text: String,
     finish_reason: Option<FinishReason>,
 ) -> CreateCompletionResponse {
+    completion_response_with_logprobs(id, created, model, text, finish_reason, None, None, None)
+}
+
+pub(crate) fn completion_response_with_logprobs(
+    id: usize,
+    created: i32,
+    model: String,
+    text: String,
+    finish_reason: Option<FinishReason>,
+    token_logprobs: Option<Vec<f32>>,
+    tokens: Option<Vec<String>>,
+    text_offset: Option<Vec<i32>>,
+) -> CreateCompletionResponse {
     let finish_reason = match finish_reason {
         Some(FinishReason::Stop) => "stop",
         Some(FinishReason::Length) => "length",
@@ -120,9 +133,9 @@ pub(crate) fn completion_response(
         finish_reason,
         index: 0,
         logprobs: CreateCompletionResponseLogprobs {
-            text_offset: None,
-            token_logprobs: None,
-            tokens: None,
+            text_offset,
+            token_logprobs,
+            tokens,
             top_logprobs: None,
         },
     }];

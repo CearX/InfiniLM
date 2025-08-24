@@ -118,6 +118,63 @@ impl Model {
         (model, service)
     }
 
+    pub fn new_mamba(config: ModelConfig, use_cuda_graph: bool) -> (Self, Service) {
+        let ModelConfig {
+            path,
+            gpus,
+            max_tokens,
+            temperature,
+            top_p,
+            repetition_penalty,
+            think,
+            blacklist,
+        } = config;
+
+        // Mamba 不支持 CUDA Graph，强制禁用
+        let mut service = Service::new_mamba(path, &gpus.unwrap_or(Box::new([0])), false);
+        progress_bar(&mut service);
+
+        let think = if think.unwrap_or(false) {
+            let &[think] = &*service.terminal().encode("<think>") else {
+                unreachable!()
+            };
+            let &[_think] = &*service.terminal().encode("</think>") else {
+                unreachable!()
+            };
+            [think, _think]
+        } else {
+            [utok::MAX; 2]
+        };
+
+        let blacklist = blacklist
+            .unwrap_or_default()
+            .into_iter()
+            .map(|s| s.to_lowercase())
+            .collect::<Vec<String>>();
+
+        let model = Model {
+            max_tokens: max_tokens.unwrap_or(2 << 10),
+            sampling: SampleArgs::new(
+                temperature.unwrap_or(0.),
+                top_p.unwrap_or(1.),
+                usize::MAX,
+                repetition_penalty.unwrap_or(1.),
+            )
+            .unwrap(),
+            think,
+            terminal: service.terminal().clone(),
+            sessions: Default::default(),
+            cache_manager: Default::default(),
+            blacklist_checker: if blacklist.is_empty() {
+                None
+            } else {
+                Some(BlacklistChecker::new(blacklist))
+            },
+        };
+
+        (model, service)
+    }
+
     pub fn serve(&self, service: &mut Service) {
         let [think, _think] = self.think;
         loop {
@@ -375,6 +432,18 @@ impl Model {
 
         let (sender, receiver) = mpsc::unbounded_channel();
 
+        // 当 max_tokens == 0 时，不进行任何解码，直接返回 Finish，避免底层 "Cannot decode 0 step" 断言失败
+        if max_tokens == 0 {
+            // 直接结束，不注册 session、不触发解码
+            sender
+                .send(Output::Finish {
+                    reason: FinishReason::Stop,
+                    num_tokens: [tokens.len(), tokens.len()],
+                })
+                .ok();
+            return Ok(receiver);
+        }
+
         let (id, tokens) = self.cache_manager.lock().unwrap().send(
             &self.terminal,
             tokens,
@@ -408,5 +477,73 @@ impl Model {
             .as_ref()
             .map(|checker| checker.contains_word(text))
             .unwrap_or(false)
+    }
+
+    /// Tokenize text using the model's tokenizer
+    pub fn tokenize(&self, text: &str) -> Vec<utok> {
+        self.terminal.tokenize(text)
+    }
+
+    /// Decode tokens to text using the model's tokenizer
+    pub fn decode(&self, tokens: &[utok]) -> String {
+        let mut buf = TextBuf::new();
+        self.terminal.decode(tokens, &mut buf)
+    }
+
+    /// Compute logprobs for the given text (for PPL evaluation)
+    /// Returns (token_logprobs, token_strings, text_offsets)
+    pub async fn compute_logprobs(
+        &self,
+        text: &str,
+    ) -> Result<(Vec<f32>, Vec<String>, Vec<i32>), Box<dyn std::error::Error + Send + Sync>> {
+        // 分词
+        let tokens = self.tokenize(text);
+        if tokens.is_empty() {
+            return Ok((Vec::new(), Vec::new(), Vec::new()));
+        }
+
+        // 准备返回值
+        let mut token_logprobs = Vec::new();
+        let mut token_strings = Vec::new();
+        let mut text_offsets = Vec::new();
+        let mut current_offset = 0i32;
+
+        // 为每个位置计算 token 信息
+        for &token in &tokens {
+            let token_text = self.decode(&[token]);
+            token_strings.push(token_text.clone());
+            text_offsets.push(current_offset);
+            current_offset += token_text.len() as i32;
+        }
+
+        // 一次性计算所有位置的 logprobs
+        // 这里我们创建一个特殊的推理请求来获取 logprobs
+        token_logprobs = self.compute_sequence_logprobs(&tokens).await?;
+
+        Ok((token_logprobs, token_strings, text_offsets))
+    }
+
+    /// Compute logprobs for an entire token sequence using real model inference
+    async fn compute_sequence_logprobs(
+        &self,
+        tokens: &[utok],
+    ) -> Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> {
+        // 检查是否有存储的 logprobs（由 Mamba 引擎计算）
+        if let Some(stored_logprobs) = llama_cu::take_stored_logprobs() {
+            // 返回存储的真实 logprobs
+            let num_tokens = tokens.len();
+            if stored_logprobs.len() >= num_tokens {
+                Ok(stored_logprobs[..num_tokens].to_vec())
+            } else {
+                Ok(stored_logprobs)
+            }
+        } else {
+            // 如果没有存储的 logprobs，说明引擎没有计算
+            // 这种情况下返回一个提示性错误
+            Err(
+                "No logprobs available. The Mamba engine should compute logprobs during inference."
+                    .into(),
+            )
+        }
     }
 }

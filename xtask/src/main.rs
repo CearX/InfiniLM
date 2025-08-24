@@ -29,6 +29,7 @@ fn main() {
         Generate(args) => args.generate(),
         Chat(args) => args.chat(),
         Service(args) => args.service(),
+        MambaService(args) => args.mamba_service(),
         Bench(args) => args.bench(),
     }
 }
@@ -49,6 +50,8 @@ enum Commands {
     Chat(chat::ChatArgs),
     /// web service
     Service(service::ServiceArgs),
+    /// mamba web service (with logprobs support)
+    MambaService(service::MambaServiceArgs),
     /// batched benchmark
     Bench(bench::BenchArgs),
 }
