@@ -118,6 +118,7 @@ impl Model {
         (model, service)
     }
 
+    #[allow(unused_variables)]
     pub fn new_mamba(config: ModelConfig, use_cuda_graph: bool) -> (Self, Service) {
         let ModelConfig {
             path,
@@ -488,62 +489,5 @@ impl Model {
     pub fn decode(&self, tokens: &[utok]) -> String {
         let mut buf = TextBuf::new();
         self.terminal.decode(tokens, &mut buf)
-    }
-
-    /// Compute logprobs for the given text (for PPL evaluation)
-    /// Returns (token_logprobs, token_strings, text_offsets)
-    pub async fn compute_logprobs(
-        &self,
-        text: &str,
-    ) -> Result<(Vec<f32>, Vec<String>, Vec<i32>), Box<dyn std::error::Error + Send + Sync>> {
-        // 分词
-        let tokens = self.tokenize(text);
-        if tokens.is_empty() {
-            return Ok((Vec::new(), Vec::new(), Vec::new()));
-        }
-
-        // 准备返回值
-        let mut token_logprobs = Vec::new();
-        let mut token_strings = Vec::new();
-        let mut text_offsets = Vec::new();
-        let mut current_offset = 0i32;
-
-        // 为每个位置计算 token 信息
-        for &token in &tokens {
-            let token_text = self.decode(&[token]);
-            token_strings.push(token_text.clone());
-            text_offsets.push(current_offset);
-            current_offset += token_text.len() as i32;
-        }
-
-        // 一次性计算所有位置的 logprobs
-        // 这里我们创建一个特殊的推理请求来获取 logprobs
-        token_logprobs = self.compute_sequence_logprobs(&tokens).await?;
-
-        Ok((token_logprobs, token_strings, text_offsets))
-    }
-
-    /// Compute logprobs for an entire token sequence using real model inference
-    async fn compute_sequence_logprobs(
-        &self,
-        tokens: &[utok],
-    ) -> Result<Vec<f32>, Box<dyn std::error::Error + Send + Sync>> {
-        // 检查是否有存储的 logprobs（由 Mamba 引擎计算）
-        if let Some(stored_logprobs) = llama_cu::take_stored_logprobs() {
-            // 返回存储的真实 logprobs
-            let num_tokens = tokens.len();
-            if stored_logprobs.len() >= num_tokens {
-                Ok(stored_logprobs[..num_tokens].to_vec())
-            } else {
-                Ok(stored_logprobs)
-            }
-        } else {
-            // 如果没有存储的 logprobs，说明引擎没有计算
-            // 这种情况下返回一个提示性错误
-            Err(
-                "No logprobs available. The Mamba engine should compute logprobs during inference."
-                    .into(),
-            )
-        }
     }
 }

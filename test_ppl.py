@@ -159,8 +159,8 @@ def main():
 
     args = parser.parse_args()
 
-    # 计算原版本PPL
-    print("=== 计算原版本 PPL ===")
+    # 计算 Rust 版本 PPL
+    print("=== 计算 Rust 版本 PPL ===")
     t0 = time.time()
     ppl_original = compute_ppl_on_dataset(
         api_base=args.api_base,
@@ -172,15 +172,15 @@ def main():
         timeout=args.timeout,
     )
     dt_original = time.time() - t0
-    print(f"原版本 PPL = {ppl_original:.4f} (time: {dt_original:.2f}s)")
+    print(f"Rust PPL = {ppl_original:.4f} (time: {dt_original:.2f}s)")
 
-    # 计算PyTorch版本PPL
+    # 计算 PyTorch 版本 PPL
     print("\n=== 计算 PyTorch 版本 PPL ===")
     print("Loading PyTorch model and tokenizer...")
     tokenizer = AutoTokenizer.from_pretrained(
-        "/home/cearx/qy/model/mamba-2.8b-hf")
+        "/home/shared/models/mamba-2.8b-hf")
     model = MambaForCausalLM.from_pretrained(
-        "/home/cearx/qy/model/mamba-2.8b-hf", device_map="cuda")
+        "/home/shared/models/mamba-2.8b-hf", device_map="cuda")
 
     # 加载相同的数据集
     print("Loading dataset...")
@@ -195,14 +195,14 @@ def main():
 
     # 计算差异
     print("\n=== PPL 对比结果 ===")
-    print(f"原版本 PPL:    {ppl_original:.4f}")
+    print(f"Rust PPL:    {ppl_original:.4f}")
     print(f"PyTorch PPL:   {ppl_pytorch:.4f}")
     diff_abs = abs(ppl_original - ppl_pytorch)
     diff_rel = diff_abs / ppl_pytorch * 100
     print(f"绝对差异:      {diff_abs:.4f}")
     print(f"相对差异:      {diff_rel:.2f}%")
-    print(f"原版本时间:    {dt_original:.2f}s")
-    print(f"PyTorch时间:   {dt_pytorch:.2f}s")
+    print(f"Rust 时间:    {dt_original:.2f}s")
+    print(f"PyTorch 时间:   {dt_pytorch:.2f}s")
 
 
 if __name__ == "__main__":

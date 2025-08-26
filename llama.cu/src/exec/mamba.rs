@@ -4,12 +4,13 @@ use crate::exec::output_head::OutputHead;
 use crate::exec::sample_manager::SampleManager;
 use crate::memory::MemPages;
 use crate::op::random_sample::{KVPair, SampleArgs};
-use crate::utils::{self, meta};
+use crate::utils::meta;
 use crate::{handle::Handle, model::map_files};
 use cuda::Device;
 use ggus::GGufMetaMapExt;
 use nn::Distribution;
 use std::env;
+use std::time::Instant;
 use tokeneer::Bpe;
 
 #[allow(dead_code)]
@@ -77,6 +78,7 @@ pub fn mamba_infer(
         let mut pages = MemPages::new(device);
         let mut mcache = MambaCache::new(n_layer, d_inner, d_conv, d_state, &mut pages);
 
+        let start = Instant::now();
         // Prefill
         let (key, _tok_buf) =
             models.load_inputs_mamba_prefill(&mut handle, tokens.len(), &tokens, &stream);
@@ -86,8 +88,13 @@ pub fn mamba_infer(
         let last_idx: [tokeneer::utok; 1] = [(tokens.len() - 1) as tokeneer::utok];
         let logits_prefill_last = output_head.launch(x.clone(), &last_idx, &mut handle, &stream);
 
-        let logits_prefill_last_vir = logits_prefill_last.as_ref().map(|mem| mem.as_ptr().cast());
-        utils::fmt(&logits_prefill_last_vir, stream.ctx());
+        let prefill_time = start.elapsed();
+        println!("prefill time = {:.2}", prefill_time.as_secs_f32());
+
+        // let logits_prefill_last_vir = logits_prefill_last
+        //     .as_ref()
+        //     .map(|mem| mem.as_ptr().cast::<VirByte>());
+        // utils::fmt(&logits_prefill_last_vir, stream.ctx());
         // check prefill logits
 
         let mut next_id: tokeneer::utok;
@@ -97,7 +104,7 @@ pub fn mamba_infer(
             let cfg0 = vec![(
                 crate::batch::SessionId(0),
                 crate::batch::SampleInfo {
-                    args: SampleArgs::new(0.8, 0.95, 50, 1.2).unwrap(),
+                    args: SampleArgs::new(0.8, 0.95, 50, 1.3).unwrap(),
                     input_idx: tokens.len(),
                     decode_len: tokens.len(),
                 },
@@ -119,7 +126,8 @@ pub fn mamba_infer(
         let max_decode_steps: usize = env::var("MAMBA_STEPS")
             .ok()
             .and_then(|s| s.parse().ok())
-            .unwrap_or(100);
+            .unwrap_or(200);
+        println!("max steps    = {}", max_decode_steps);
         for _step in 1..max_decode_steps {
             let out_idx: [tokeneer::utok; 1] = [0];
 
@@ -130,7 +138,7 @@ pub fn mamba_infer(
             let cfg = vec![(
                 crate::batch::SessionId(0),
                 crate::batch::SampleInfo {
-                    args: SampleArgs::new(0.8, 0.95, 50, 1.2).unwrap(),
+                    args: SampleArgs::new(0.8, 0.95, 50, 1.3).unwrap(),
                     input_idx: tokens.len(),
                     decode_len: tokens.len(),
                 },
@@ -151,7 +159,9 @@ pub fn mamba_infer(
             x = models.launch_mamba(key, &mut mcache, &mut handle, &stream);
         }
 
-        println!("tokens = {:?}", tokens);
+        let decode_time = start.elapsed() - prefill_time;
+        println!("decode time  = {:.2}", decode_time.as_secs_f64());
+        // println!("tokens = {:?}", tokens);
         let mut text_buf = tokeneer::TextBuf::new();
         let s = tokenizer.decode(&generated, &mut text_buf);
         let text = String::from_utf8_lossy(&s.into_bytes()).to_string();
@@ -160,22 +170,23 @@ pub fn mamba_infer(
     })
 }
 
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
-//     use std::{path::PathBuf, time::Instant};
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{path::PathBuf, time::Instant};
 
-//     #[test]
-//     fn test_mamba_infer_decode() {
-//         let start = Instant::now();
-//         let model = PathBuf::from("/home/cearx/qy/model/Mamba_adf32-2.8B-hf-v1.0-F16.gguf");
-//         let prompt = "Once upon a time,";
-//         let (text, len) = mamba_infer(model, prompt, false);
-//         let end = Instant::now();
-//         let tokens_per_second = len as f64 / (end - start).as_secs_f64();
-//         println!("infer time = {:?}", end - start);
-//         println!("tokens/s = {}", tokens_per_second);
-//         println!("prompt = {}", prompt);
-//         println!("mamba infer text = {}", text);
-//     }
-// }
+    #[test]
+    fn test_mamba_infer_decode() {
+        let start = Instant::now();
+        let model = PathBuf::from("/home/cearx/Mamba-2.8B-hf-v1.0-F16.gguf");
+        let prompt = "Once upon a time,";
+        let (text, len) = mamba_infer(model, prompt, false);
+        let end = Instant::now();
+        let tokens_per_second = len as f64 / (end - start).as_secs_f64();
+        let infer_time = end - start;
+        println!("infer time   = {:.2} s", infer_time.as_secs_f64());
+        println!("tokens/s     = {:.2}", tokens_per_second);
+        println!("prompt       = {}", prompt);
+        println!("output text  = {}", text);
+    }
+}

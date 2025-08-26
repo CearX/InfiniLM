@@ -9,7 +9,7 @@ mod utils;
 
 use cuda::{self, Device};
 use exec::{Command, KVCache, Output, Request, engine, mamba_engine};
-use ggus::{GGufMetaMap, GGufMetaMapExt};
+use ggus::GGufMetaMapExt;
 use log::info;
 use memory::MemPages;
 use model::{ChatTemplate, GGufModel, map_files};

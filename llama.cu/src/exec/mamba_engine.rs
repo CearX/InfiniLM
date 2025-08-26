@@ -8,7 +8,7 @@ use crate::{
     handle::Handle,
     memory::MemPages,
     op::{FastEmbedding, random_sample::KVPair},
-    utils::{self, Blob, meta},
+    utils::{Blob, meta},
 };
 use cuda::{ContextResource, CurrentCtx, Device, Event, HostMem};
 use ggus::GGufMetaMapExt;
@@ -27,8 +27,8 @@ use std::{
 };
 use tokeneer::utok;
 
-#[cfg(nccl)]
-use nccl::{Communicator, CommunicatorGroup};
+// #[cfg(nccl)]
+// use nccl::{Communicator, CommunicatorGroup};
 
 // 全局存储用于PPL请求的logprobs
 static LOGPROBS_STORAGE: OnceLock<Mutex<Option<Vec<f32>>>> = OnceLock::new();
@@ -59,7 +59,7 @@ fn compute_log_softmax_on_gpu(
     let seq_len = shape[0];
     let vocab_size = shape[1];
     let total_elements = seq_len * vocab_size;
-    println!("DEBUG: logits shape: [{}, {}]", seq_len, vocab_size);
+    // println!("DEBUG: logits shape: [{}, {}]", seq_len, vocab_size);
 
     // 将 logits 从 GPU 复制到 CPU 进行计算
     let d2h = |tensor: &Tensor<cuda::DevMem, 2>| {
@@ -67,18 +67,18 @@ fn compute_log_softmax_on_gpu(
         let ptr = tensor.get().as_ptr().cast::<cuda::DevByte>();
         let len = *mem_range.end() as usize + tensor.dt().nbytes();
 
-        // 调试：检查内存复制参数
-        println!(
-            "DEBUG: d2h params - mem_range: {:?}, len: {}, dtype_nbytes: {}",
-            mem_range,
-            len,
-            tensor.dt().nbytes()
-        );
-        println!(
-            "DEBUG: expected_elements: {}, calculated_bytes: {}",
-            total_elements,
-            total_elements * 4
-        ); // f32 = 4 bytes
+        // // 调试：检查内存复制参数
+        // println!(
+        //     "DEBUG: d2h params - mem_range: {:?}, len: {}, dtype_nbytes: {}",
+        //     mem_range,
+        //     len,
+        //     tensor.dt().nbytes()
+        // );
+        // println!(
+        //     "DEBUG: expected_elements: {}, calculated_bytes: {}",
+        //     total_elements,
+        //     total_elements * 4
+        // ); // f32 = 4 bytes
 
         let slice = unsafe { std::slice::from_raw_parts(ptr, len) };
         let mut host = Blob::new(len);
@@ -103,16 +103,16 @@ fn compute_log_softmax_on_gpu(
             )
         };
 
-        // 调试：验证 f16 原始数据
-        println!("DEBUG: f16 raw data - first 10 values:");
-        for i in 0..10.min(total_elements) {
-            println!(
-                "  f16[{}] = {:?} -> f32 = {:.6}",
-                i,
-                host_logits_f16[i],
-                host_logits_f16[i].to_f32()
-            );
-        }
+        // // 调试：验证 f16 原始数据
+        // println!("DEBUG: f16 raw data - first 10 values:");
+        // for i in 0..10.min(total_elements) {
+        //     println!(
+        //         "  f16[{}] = {:?} -> f32 = {:.6}",
+        //         i,
+        //         host_logits_f16[i],
+        //         host_logits_f16[i].to_f32()
+        //     );
+        // }
 
         // 转换为 f32
         host_logits_f16.iter().map(|&x| x.to_f32()).collect()
@@ -181,17 +181,17 @@ fn compute_log_softmax_on_gpu(
                 let target_logprob = batch_logits[target_token] - log_sum_exp;
                 logprobs.push(target_logprob);
 
-                // 调试：打印一些样本值
-                if batch_idx < 5 {
-                    println!(
-                        "DEBUG: pos={}, target_token={}, target_logit={:.4}, log_sum_exp={:.4}, logprob={:.4}",
-                        batch_idx,
-                        target_token,
-                        batch_logits[target_token],
-                        log_sum_exp,
-                        target_logprob
-                    );
-                }
+                // // 调试：打印一些样本值
+                // if batch_idx < 5 {
+                //     println!(
+                //         "DEBUG: pos={}, target_token={}, target_logit={:.4}, log_sum_exp={:.4}, logprob={:.4}",
+                //         batch_idx,
+                //         target_token,
+                //         batch_logits[target_token],
+                //         log_sum_exp,
+                //         target_logprob
+                //     );
+                // }
             } else {
                 println!(
                     "WARNING: target_token {} >= vocab_size {}",
@@ -299,57 +299,57 @@ pub(crate) fn mamba_engine(
     #[cfg(not(nccl))]
     unreachable!();
 
-    #[cfg(nccl)]
-    {
-        use std::collections::HashMap;
+    // #[cfg(nccl)]
+    // {
+    //     use std::collections::HashMap;
 
-        let devlist = workers.iter().map(|(gpu, _)| *gpu).collect::<Vec<_>>();
-        let mut workers = workers.iter().cloned().collect::<HashMap<_, _>>();
+    //     let devlist = workers.iter().map(|(gpu, _)| *gpu).collect::<Vec<_>>();
+    //     let mut workers = workers.iter().cloned().collect::<HashMap<_, _>>();
 
-        let mut comms = CommunicatorGroup::new(&devlist).into_vec().into_iter();
-        let first = comms.next().unwrap();
+    //     let mut comms = CommunicatorGroup::new(&devlist).into_vec().into_iter();
+    //     let first = comms.next().unwrap();
 
-        let mut mamba = mamba;
-        let output_head = mamba.output_head.take().unwrap();
-        let worker = MambaWorker {
-            dev: first.device(),
-            dist: Distribution {
-                start: 0,
-                len: 1,
-                total: devlist.len(),
-            },
-            progress: workers.remove(&first.device().index()).unwrap(),
-            config: ModelGroupConfig {
-                static_model_keys: MAMBA_NTOKS,
-                dyn_cache_size: 1,
-                use_cuda_graph,
-            },
-            max_toks: MAMBA_MAX_TOKS,
-            barrier: Some(Arc::new(Barrier::new(devlist.len()))),
-            task_box: Default::default(),
-            chunked_prefill_len: MAMBA_CHUNKED_PREFILL_LEN,
-        };
-        std::thread::scope(|s| {
-            let _threads = comms
-                .map(|comm| {
-                    let dev = comm.device();
-                    let dist = Distribution::new(comm.rank(), 1, devlist.len());
-                    let worker = MambaWorker {
-                        dev,
-                        dist,
-                        progress: workers.remove(&dev.index()).unwrap(),
-                        ..worker.clone()
-                    };
-                    let mamba = mamba.clone();
-                    s.spawn(move || worker.work(mamba, comm))
-                })
-                .collect::<Vec<_>>();
+    //     let mut mamba = mamba;
+    //     let output_head = mamba.output_head.take().unwrap();
+    //     let worker = MambaWorker {
+    //         dev: first.device(),
+    //         dist: Distribution {
+    //             start: 0,
+    //             len: 1,
+    //             total: devlist.len(),
+    //         },
+    //         progress: workers.remove(&first.device().index()).unwrap(),
+    //         config: ModelGroupConfig {
+    //             static_model_keys: MAMBA_NTOKS,
+    //             dyn_cache_size: 1,
+    //             use_cuda_graph,
+    //         },
+    //         max_toks: MAMBA_MAX_TOKS,
+    //         barrier: Some(Arc::new(Barrier::new(devlist.len()))),
+    //         task_box: Default::default(),
+    //         chunked_prefill_len: MAMBA_CHUNKED_PREFILL_LEN,
+    //     };
+    //     std::thread::scope(|s| {
+    //         let _threads = comms
+    //             .map(|comm| {
+    //                 let dev = comm.device();
+    //                 let dist = Distribution::new(comm.rank(), 1, devlist.len());
+    //                 let worker = MambaWorker {
+    //                     dev,
+    //                     dist,
+    //                     progress: workers.remove(&dev.index()).unwrap(),
+    //                     ..worker.clone()
+    //                 };
+    //                 let mamba = mamba.clone();
+    //                 s.spawn(move || worker.work(mamba, comm))
+    //             })
+    //             .collect::<Vec<_>>();
 
-            worker.lead(mamba, gguf, eos, output_head, commands, outputs, |ctx| {
-                Handle::with_comm(ctx, first)
-            })
-        })
-    }
+    //         worker.lead(mamba, gguf, eos, output_head, commands, outputs, |ctx| {
+    //             Handle::with_comm(ctx, first)
+    //         })
+    //     })
+    // }
 }
 
 fn mamba_mono(
@@ -401,6 +401,7 @@ struct MambaWorker<T> {
 type MambaTaskBox = Arc<RwLock<Option<MambaTask>>>;
 
 #[cfg_attr(not(nccl), allow(dead_code))]
+#[allow(unused)]
 struct MambaTask {
     key: NonZeroUsize,
     reqs: Vec<Req<CacheParts>>,
@@ -542,21 +543,21 @@ impl<T: IntoIterator<Item = usize>> MambaWorker<T> {
                     let mut input = stream.malloc::<utok>(tok.len() / size_of::<utok>());
                     stream.memcpy_d2d(&mut input, tok);
 
-                    // 通知协处理单元
-                    #[cfg(nccl)]
-                    if let Some(barrier) = &barrier {
-                        *task_box.write().unwrap() = Some(MambaTask {
-                            key,
-                            reqs: reqs.clone(),
-                        });
-                        barrier.wait();
-                        models.share_inputs(key, &mut handle, &stream);
-                    }
+                    // // 通知协处理单元
+                    // #[cfg(nccl)]
+                    // if let Some(barrier) = &barrier {
+                    //     *task_box.write().unwrap() = Some(MambaTask {
+                    //         key,
+                    //         reqs: reqs.clone(),
+                    //     });
+                    //     barrier.wait();
+                    //     models.share_inputs(key, &mut handle, &stream);
+                    // }
 
                     // Mamba 推理
                     let x = models.launch_mamba(key, &mut mamba_cache, &mut handle, &stream);
 
-                    println!("DEBUG: x shape: {:?}", x.shape());
+                    // println!("DEBUG: x shape: {:?}", x.shape());
 
                     // 对于 PPL 计算，我们需要所有位置的 logits（除了最后一个位置）
                     let need_logprobs = should_compute_logprobs(&reqs);
@@ -577,26 +578,26 @@ impl<T: IntoIterator<Item = usize>> MambaWorker<T> {
                         continue;
                     }
 
-                    println!("DEBUG: original tokens: {:?}", tokens);
-                    println!("DEBUG: token len: {:?}", tokens.len());
-                    println!("DEBUG: out_idx len: {:?}", out_idx.len());
-                    println!(
-                        "DEBUG: effective_out_idx len: {:?}",
-                        effective_out_idx.len()
-                    );
-                    println!("DEBUG: out_idx: {:?}", out_idx);
-                    println!("DEBUG: effective_out_idx: {:?}", effective_out_idx);
+                    // println!("DEBUG: original tokens: {:?}", tokens);
+                    // println!("DEBUG: token len: {:?}", tokens.len());
+                    // println!("DEBUG: out_idx len: {:?}", out_idx.len());
+                    // println!(
+                    //     "DEBUG: effective_out_idx len: {:?}",
+                    //     effective_out_idx.len()
+                    // );
+                    // println!("DEBUG: out_idx: {:?}", out_idx);
+                    // println!("DEBUG: effective_out_idx: {:?}", effective_out_idx);
 
-                    let logits_prefill_last = output_head.launch(
-                        x.clone(),
-                        // &out_idx_buf[..out_idx.len()],
-                        &[0], // 打印logits first token
-                        &mut handle,
-                        &stream,
-                    );
-                    let logits_prefill_last_vir =
-                        logits_prefill_last.as_ref().map(|mem| mem.as_ptr().cast());
-                    utils::fmt(&logits_prefill_last_vir, stream.ctx()); // 打印logits_prefill_last
+                    // let logits_prefill_last = output_head.launch(
+                    //     x.clone(),
+                    //     // &out_idx_buf[..out_idx.len()],
+                    //     &[0], // 打印logits first token
+                    //     &mut handle,
+                    //     &stream,
+                    // );
+                    // let logits_prefill_last_vir =
+                    //     logits_prefill_last.as_ref().map(|mem| mem.as_ptr().cast());
+                    // utils::fmt(&logits_prefill_last_vir, stream.ctx()); // 打印logits_prefill_last
 
                     // 计算输出头 - 这里可以计算 logprobs
                     let logits = output_head.launch(x, &effective_out_idx, &mut handle, &stream);
@@ -609,16 +610,16 @@ impl<T: IntoIterator<Item = usize>> MambaWorker<T> {
                         let target_tokens: Vec<utok> = if tokens.len() > 1 {
                             // 目标 token 是位置 1..seq_len 的 token（用于计算位置 0..seq_len-1 的概率）
                             let targets = tokens[1..].to_vec();
-                            println!("DEBUG: PPL target tokens: {:?}", targets);
+                            // println!("DEBUG: PPL target tokens: {:?}", targets);
                             targets
                         } else {
                             Vec::new()
                         };
 
                         // 调试：检查 GPU logits tensor 信息
-                        let logits_shape = logits.shape();
-                        println!("DEBUG: GPU logits tensor shape: {:?}", logits_shape);
-                        println!("DEBUG: GPU logits tensor dtype: {:?}", logits.dt());
+                        // let logits_shape = logits.shape();
+                        // println!("DEBUG: GPU logits tensor shape: {:?}", logits_shape);
+                        // println!("DEBUG: GPU logits tensor dtype: {:?}", logits.dt());
 
                         let logprobs = if !target_tokens.is_empty() {
                             compute_log_softmax_on_gpu(&logits, &stream, Some(&target_tokens))
@@ -682,40 +683,40 @@ impl<T: IntoIterator<Item = usize>> MambaWorker<T> {
         })
     }
 
-    #[cfg(nccl)]
-    fn work(self, mamba: Mamba<Tensor<&[u8], 2>>, comm: Communicator) {
-        let Self {
-            dev,
-            dist,
-            progress,
-            config,
-            max_toks: _max_toks,
-            barrier,
-            task_box,
-            ..
-        } = self;
+    // #[cfg(nccl)]
+    // fn work(self, mamba: Mamba<Tensor<&[u8], 2>>, comm: Communicator) {
+    //     let Self {
+    //         dev,
+    //         dist,
+    //         progress,
+    //         config,
+    //         max_toks: _max_toks,
+    //         barrier,
+    //         task_box,
+    //         ..
+    //     } = self;
 
-        let barrier = barrier.unwrap();
-        dev.set_mempool_threshold(u64::MAX);
-        dev.retain_primary().apply(|ctx| {
-            let mut handle = Handle::with_comm(ctx, comm);
-            let mut models =
-                ModelGroupMamba::new(mamba, dist, progress, config, &mut handle, Some(&barrier));
+    //     let barrier = barrier.unwrap();
+    //     dev.set_mempool_threshold(u64::MAX);
+    //     dev.retain_primary().apply(|ctx| {
+    //         let mut handle = Handle::with_comm(ctx, comm);
+    //         let mut models =
+    //             ModelGroupMamba::new(mamba, dist, progress, config, &mut handle, Some(&barrier));
 
-            let stream = ctx.stream();
-            loop {
-                barrier.wait();
-                match &*task_box.read().unwrap() {
-                    Some(MambaTask { key, reqs }) => {
-                        models.share_inputs(*key, &mut handle, &stream);
-                        // TODO: 需要实现 Mamba 的 launch 方法
-                        // models.launch_mamba(*key, reqs, &mut handle, &stream);
-                    }
-                    None => break,
-                }
-            }
-        })
-    }
+    //         let stream = ctx.stream();
+    //         loop {
+    //             barrier.wait();
+    //             match &*task_box.read().unwrap() {
+    //                 Some(MambaTask { key, reqs }) => {
+    //                     models.share_inputs(*key, &mut handle, &stream);
+    //                     // TODO: 需要实现 Mamba 的 launch 方法
+    //                     // models.launch_mamba(*key, reqs, &mut handle, &stream);
+    //                 }
+    //                 None => break,
+    //             }
+    //         }
+    //     })
+    // }
 }
 
 fn pos<T>(reqs: &[Req<T>]) -> Vec<upos> {

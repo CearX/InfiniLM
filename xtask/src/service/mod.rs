@@ -463,6 +463,7 @@ impl HyperService<Request<Incoming>> for App {
     }
 }
 
+#[allow(unused_variables)]
 impl MambaServiceArgs {
     pub fn mamba_service(self) {
         let Self {
