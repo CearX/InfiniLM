@@ -317,11 +317,27 @@ impl HyperService<Request<Incoming>> for App {
                         if let Some(stored_logprobs) = llama_cu::take_stored_logprobs() {
                             // 分词以获取token信息
                             let tokens = model.tokenize(&prompt_text);
+
+                            // // 调试信息：打印分词结果
+                            // println!("DEBUG Rust: tokens= {:?}", tokens);
+                            // println!("DEBUG Rust: prompt_text= {:?}", prompt_text);
+                            // println!(
+                            //     "DEBUG Rust: text_len={}, tokens={}",
+                            //     prompt_text.len(),
+                            //     tokens.len()
+                            // );
+
                             let mut token_strings = Vec::new();
                             let mut text_offsets = Vec::new();
                             let mut current_offset = 0i32;
 
-                            for &token in &tokens {
+                            // 对于PPL计算，我们只需要前n-1个token的信息（对应logprobs的数量）
+                            let token_count_for_logprobs = if tokens.len() > 1 {
+                                tokens.len() - 1
+                            } else {
+                                0
+                            };
+                            for &token in &tokens[..token_count_for_logprobs] {
                                 let token_text = model.decode(&[token]);
                                 token_strings.push(token_text.clone());
                                 text_offsets.push(current_offset);
@@ -329,11 +345,29 @@ impl HyperService<Request<Incoming>> for App {
                             }
 
                             // 只返回prompt部分的logprobs（不包括生成的内容）
-                            let prompt_logprobs = if stored_logprobs.len() >= tokens.len() {
-                                stored_logprobs[..tokens.len()].to_vec()
+                            // 注意：对于PPL计算，logprobs数量应该是tokens.len()-1
+                            // 因为我们计算的是位置0..n-1预测位置1..n的概率
+                            let expected_logprobs_count = if tokens.len() > 1 {
+                                tokens.len() - 1
+                            } else {
+                                0
+                            };
+                            let stored_logprobs_len = stored_logprobs.len();
+                            let prompt_logprobs = if stored_logprobs_len >= expected_logprobs_count
+                            {
+                                stored_logprobs[..expected_logprobs_count].to_vec()
                             } else {
                                 stored_logprobs
                             };
+
+                            // 调试信息
+                            println!(
+                                "DEBUG: tokens.len()={}, expected_logprobs_count={}, stored_logprobs.len()={}, prompt_logprobs.len()={}",
+                                tokens.len(),
+                                expected_logprobs_count,
+                                stored_logprobs_len,
+                                prompt_logprobs.len()
+                            );
 
                             let response = completion_response_with_logprobs(
                                 id,

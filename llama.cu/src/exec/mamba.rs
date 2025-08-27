@@ -11,7 +11,6 @@ use ggus::GGufMetaMapExt;
 use nn::Distribution;
 use std::env;
 use std::time::Instant;
-use tokeneer::Bpe;
 
 #[allow(dead_code)]
 pub fn mamba_infer(
@@ -26,8 +25,15 @@ pub fn mamba_infer(
     // 加载模型
     let maps = map_files(model_path);
     let gguf = GGufModel::read(maps.iter().map(|x| &**x));
-    let tokenizer = Bpe::from_gguf(&gguf);
-    let mut tokens = tokenizer.encode(text);
+    // let tokenizer = Bpe::from_gguf(&gguf);
+
+    use tokenizers::tokenizer::Tokenizer;
+    let tokenizer =
+        Tokenizer::from_file("/home/shared/models/mamba-2.8b-hf/tokenizer.json").unwrap();
+    let encoding = tokenizer.encode(text, false).unwrap();
+    let mut tokens = encoding.get_ids().to_vec();
+
+    // let mut tokens = tokenizer.encode(text);
 
     let n_tok = tokens.len();
 
@@ -162,9 +168,10 @@ pub fn mamba_infer(
         let decode_time = start.elapsed() - prefill_time;
         println!("decode time  = {:.2}", decode_time.as_secs_f64());
         // println!("tokens = {:?}", tokens);
-        let mut text_buf = tokeneer::TextBuf::new();
-        let s = tokenizer.decode(&generated, &mut text_buf);
-        let text = String::from_utf8_lossy(&s.into_bytes()).to_string();
+        // let mut text_buf = tokeneer::TextBuf::new();
+        // let s = tokenizer.decode(&generated, &mut text_buf);
+        // let text = String::from_utf8_lossy(&s.into_bytes()).to_string();
+        let text = tokenizer.decode(&generated, false).unwrap();
 
         (text, tokens.len())
     })

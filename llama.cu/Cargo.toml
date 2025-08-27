@@ -12,6 +12,7 @@ nn = { git = "https://github.com/CearX/InfiniNN", rev = "6caef2"}
 ggus = { git = "https://github.com/InfiniTensor/gguf", rev = "23c362f" }
 tokeneer = { git = "https://github.com/CearX/tokeneer.git", rev = "2546d72" }
 
+tokenizers = "0.21.4"
 bytesize = "2.0"
 log.workspace = true
 regex.workspace = true

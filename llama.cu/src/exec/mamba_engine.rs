@@ -501,6 +501,10 @@ impl<T: IntoIterator<Item = usize>> MambaWorker<T> {
                         );
                         continue;
                     }
+
+                    // println!("DEBUG: originaltokens= {:?}", tokens);
+                    // println!("DEBUG: tokens.len()= {:?}", tokens.len());
+
                     // 更新 host 多级缓存
                     let out_idx = out_idx(&reqs, output.iter().map(|(_, len)| *len));
                     events[out_idx_buf.index()].synchronize();

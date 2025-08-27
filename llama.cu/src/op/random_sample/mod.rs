@@ -140,7 +140,7 @@ impl RandomSample<'_> {
         dims!([n] = logits);
 
         strides!([sl] = logits);
-        assert_eq!(sl, logits.dt().nbytes() as _);
+        assert_eq!(sl, logits.dt().nbytes() as isize);
 
         check!(argmax_half(
             offset_ptr(&kv_pair).cast_mut().cast(),

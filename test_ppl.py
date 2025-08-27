@@ -56,6 +56,11 @@ def fetch_logprobs(
         )
     # 过滤 None（例如特殊符号），仅聚合有效对数概率
     valid_lps = [x for x in token_logprobs if x is not None]
+
+    # # 调试信息：检查None值的数量
+    # none_count = sum(1 for x in token_logprobs if x is None)
+    # print(f"DEBUG: total_tokens={len(token_logprobs)}, none_count={none_count}, valid_tokens={len(valid_lps)}")
+
     return valid_lps, len(valid_lps)
 
 
@@ -98,6 +103,7 @@ def compute_ppl_on_dataset(
     if total_tokens == 0:
         raise RuntimeError("未获得任何 token 的 logprobs，无法计算 PPL。")
 
+    # print(total_nll, total_tokens)
     avg_nll = total_nll / total_tokens
     ppl = math.exp(avg_nll)
     return ppl
@@ -129,11 +135,19 @@ def compute_ppl_pytorch(model, tokenizer, texts, max_length=1024, max_samples=No
             total_tokens += input_ids.size(1) - 1
             processed += 1
 
+            #  # 调试信息：打印分词结果
+            # if processed < 3:
+            #     print(f"DEBUG PyTorch: text= \"{text}\"")
+            #     print(f"DEBUG PyTorch: input_ids= {input_ids}")
+            #     print(f"DEBUG PyTorch: total_loss={total_loss}, total_tokens={total_tokens}")
+            #     print(f"DEBUG PyTorch: text_len={len(text)}, tokens={input_ids.size(1)}, truncated={len(text) > max_length}")
+
             # 检查是否达到最大样本数
             if max_samples and max_samples > 0 and processed >= max_samples:
                 break
 
     # 计算PPL
+    # print(total_loss, total_tokens)
     avg_loss = total_loss / total_tokens
     ppl = math.exp(avg_loss)
     return ppl
@@ -185,7 +199,7 @@ def main():
     # 加载相同的数据集
     print("Loading dataset...")
     dataset = load_dataset(args.dataset, args.config, split=args.split)
-    texts = [item["text"] for item in dataset if item["text"].strip()]
+    texts = [item["text"].strip() for item in dataset if item["text"].strip()]
 
     t1 = time.time()
     ppl_pytorch = compute_ppl_pytorch(
@@ -198,9 +212,9 @@ def main():
     print(f"Rust PPL:    {ppl_original:.4f}")
     print(f"PyTorch PPL:   {ppl_pytorch:.4f}")
     diff_abs = abs(ppl_original - ppl_pytorch)
-    diff_rel = diff_abs / ppl_pytorch * 100
-    print(f"绝对差异:      {diff_abs:.4f}")
-    print(f"相对差异:      {diff_rel:.2f}%")
+    diff_rel = diff_abs / ppl_pytorch
+    print(f"绝对差异:      {diff_abs:.2e}")
+    print(f"相对差异:      {diff_rel:.2e}")
     print(f"Rust 时间:    {dt_original:.2f}s")
     print(f"PyTorch 时间:   {dt_pytorch:.2f}s")
 

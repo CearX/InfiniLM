@@ -355,7 +355,13 @@ impl Terminal {
     }
 
     pub fn tokenize(&self, text: &str) -> Vec<utok> {
-        self.components.wait().tokenizer.encode(text)
+        // self.components.wait().tokenizer.encode(text)
+        use tokenizers::tokenizer::Tokenizer;
+        let tokenizer =
+            Tokenizer::from_file("/home/shared/models/mamba-2.8b-hf/tokenizer.json").unwrap();
+        let encoding = tokenizer.encode(text, false).unwrap();
+        let tokens = encoding.get_ids();
+        tokens.iter().map(|t| *t as utok).collect()
     }
 
     pub fn start(&self, session: Session<CacheParts>, tokens: &[utok], max_steps: usize) -> bool {
