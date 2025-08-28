@@ -118,7 +118,7 @@ impl<'ctx> Handle<'ctx> {
             "rms-norm" => launch!(RmsNorm),
             "layer-norm" => launch!(LayerNorm),
             "linear" => launch!(Linear),
-            "mamba-causal-conv1d" => launch!(Conv1d),
+            "mamba-causal-conv1d" => launch!(CausalConv1dUnified),
             "mamba-selective-scan" => launch!(SelectiveScanWithWriteback),
             "rope" => launch!(Rope),
             "mrope" => launch!(MRope),

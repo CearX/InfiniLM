@@ -26,7 +26,7 @@ pub mod random_sample;
 
 #[cfg(nccl)]
 pub use all_reduce::AllReduce;
-pub use conv1d::{CausalConv1dStep, Conv1d};
+pub use conv1d::CausalConv1dUnified;
 pub use element_mul::ElementMul;
 pub use embedding::Embedding;
 pub use fast_embedding::FastEmbedding;
