@@ -11,7 +11,7 @@ use std::{env::VarError, time::Instant};
 use tokio::time::Duration;
 use tokio_stream::StreamExt;
 
-const CONCURRENT_REQUESTS: usize = 10;
+const CONCURRENT_REQUESTS: usize = 240;
 
 pub(crate) fn requset_body_chat(prompt: &str) -> String {
     serde_json::to_string(&CreateChatCompletionRequest {
@@ -68,7 +68,18 @@ pub(crate) async fn send_single_request(
     headers: &HeaderMap,
     req_body: String,
     index: Option<usize>,
-) -> Result<(usize, usize, String, Duration), String> {
+) -> Result<
+    (
+        usize,
+        usize,
+        String,
+        Duration,
+        Option<(usize, usize, usize)>,
+        Instant, // 请求开始时间
+        Instant, // 请求结束时间
+    ),
+    String,
+> {
     let task_start = Instant::now();
     let index = index.unwrap_or(0);
 
@@ -108,6 +119,7 @@ pub(crate) async fn send_single_request(
                 let mut chunk_count = 0;
                 let mut accumulated_content = String::new();
                 let mut buffer = String::new();
+                let mut token_stats: Option<(usize, usize, usize)> = None; // (prompt_tokens, completion_tokens, total_tokens)
 
                 while let Some(item) = stream.next().await {
                     chunk_count += 1;
@@ -147,6 +159,21 @@ pub(crate) async fn send_single_request(
                                                         trace!("提取到文本内容: {content:?}")
                                                     }
                                                 }
+
+                                                // 提取usage信息（通常在最后一个消息中）
+                                                if let Some(usage) = &response.usage {
+                                                    token_stats = Some((
+                                                        usage.prompt_tokens as usize,
+                                                        usage.completion_tokens as usize,
+                                                        usage.total_tokens as usize,
+                                                    ));
+                                                    trace!(
+                                                        "提取到token统计: prompt={}, completion={}, total={}",
+                                                        usage.prompt_tokens,
+                                                        usage.completion_tokens,
+                                                        usage.total_tokens
+                                                    );
+                                                }
                                             }
                                             Err(e) => {
                                                 if index == 0 {
@@ -180,11 +207,15 @@ pub(crate) async fn send_single_request(
                     println!("完整生成内容: {accumulated_content}")
                 }
 
+                let task_end = Instant::now();
                 Ok((
                     index,
                     chunk_count,
                     accumulated_content,
                     task_start.elapsed(),
+                    token_stats,
+                    task_start,
+                    task_end,
                 ))
             } else {
                 let error_text = res.text().await.unwrap_or_default();
@@ -274,7 +305,6 @@ fn test_post_send_multi() {
                 .collect::<Vec<_>>();
 
             // 等待所有任务完成并统计结果
-            let total_elapsed = start_time.elapsed();
             let mut successful_count = 0;
             let mut failed_count = 0;
             let mut total_chunks = 0;
@@ -282,14 +312,48 @@ fn test_post_send_multi() {
             let mut max_duration = Duration::ZERO;
             let mut min_duration = Duration::MAX;
 
+            let mut total_prompt_tokens = 0;
+            let mut total_completion_tokens = 0;
+            let mut total_all_tokens = 0;
+            let mut token_stats_available = 0;
+
+            // 用于计算真正的并发执行时间
+            let mut first_start_time: Option<Instant> = None;
+            let mut last_end_time: Option<Instant> = None;
+
             for task in tasks {
                 match task.await {
-                    Ok(Ok((index, chunks, content, duration))) => {
+                    Ok(Ok((
+                        index,
+                        chunks,
+                        content,
+                        duration,
+                        token_stats,
+                        start_time,
+                        end_time,
+                    ))) => {
                         successful_count += 1;
                         total_chunks += chunks;
                         total_text_length += content.len();
                         max_duration = max_duration.max(duration);
                         min_duration = min_duration.min(duration);
+
+                        // 记录最早开始时间和最晚结束时间
+                        if first_start_time.is_none() || start_time < first_start_time.unwrap() {
+                            first_start_time = Some(start_time);
+                        }
+                        if last_end_time.is_none() || end_time > last_end_time.unwrap() {
+                            last_end_time = Some(end_time);
+                        }
+
+                        // 累计token统计
+                        if let Some((prompt_tokens, completion_tokens, all_tokens)) = token_stats {
+                            total_prompt_tokens += prompt_tokens;
+                            total_completion_tokens += completion_tokens;
+                            total_all_tokens += all_tokens;
+                            token_stats_available += 1;
+                        }
+
                         trace!("任务 {index} 成功完成")
                     }
                     Ok(Err(e)) => {
@@ -303,17 +367,26 @@ fn test_post_send_multi() {
                 }
             }
 
+            // 计算真正的并发执行时间
+            let actual_concurrent_time =
+                if let (Some(start), Some(end)) = (first_start_time, last_end_time) {
+                    end.duration_since(start)
+                } else {
+                    Duration::ZERO
+                };
+
             // 输出统计信息
             println!("\n=== 并发测试统计 ===");
             println!("总请求数: {CONCURRENT_REQUESTS}");
             println!("成功请求数: {successful_count}");
             println!("失败请求数: {failed_count}");
-            println!("总耗时: {total_elapsed:?}");
+            // println!("任务创建耗时: {:?}", start_time.elapsed());
+            println!("实际并发执行时间: {actual_concurrent_time:?}");
             println!("最快请求: {min_duration:?}");
             println!("最慢请求: {max_duration:?}");
             println!(
                 "平均每请求耗时: {:?}",
-                total_elapsed / CONCURRENT_REQUESTS as u32
+                actual_concurrent_time / successful_count.max(1) as u32
             );
             println!("总数据块数: {total_chunks}");
             println!("总文本长度: {total_text_length}");
@@ -331,6 +404,115 @@ fn test_post_send_multi() {
                     "平均每请求文本长度: {:.1}",
                     total_text_length as f64 / successful_count as f64
                 );
+
+                // tokens/s 性能计算
+                let avg_single_request_time = (max_duration + min_duration).as_secs_f64() / 2.0;
+                let avg_single_request_time_ms =
+                    (max_duration.as_millis() + min_duration.as_millis()) as f64 / 2.0;
+
+                println!("\n=== Tokens/s 性能指标 ===");
+                if token_stats_available > 0 {
+                    println!(
+                        "实际统计可用请求数: {}/{}",
+                        token_stats_available, successful_count
+                    );
+                    println!("总提示tokens: {}", total_prompt_tokens);
+                    println!("总生成tokens: {}", total_completion_tokens);
+                    println!("总tokens: {}", total_all_tokens);
+
+                    // 使用真正的并发执行时间来计算整体tokens/s
+                    let actual_concurrent_micros = actual_concurrent_time.as_micros() as f64;
+
+                    if actual_concurrent_micros > 0.0 {
+                        println!(
+                            "整体生成tokens/s: {:.2}",
+                            (total_completion_tokens as f64 * 1_000_000.0)
+                                / actual_concurrent_micros
+                        );
+                    } else {
+                        println!("整体生成tokens/s: 无法计算（时间过短）");
+                    }
+
+                    if avg_single_request_time_ms > 0.0 {
+                        println!(
+                            "平均单请求生成tokens/s: {:.2}",
+                            ((total_completion_tokens as f64 / token_stats_available as f64)
+                                * 1000.0)
+                                / avg_single_request_time_ms
+                        );
+                    } else {
+                        println!("平均单请求生成tokens/s: 无法计算（时间过短）");
+                    }
+
+                    let min_duration_ms = min_duration.as_millis() as f64;
+                    let max_duration_ms = max_duration.as_millis() as f64;
+
+                    if min_duration_ms > 0.0 {
+                        println!(
+                            "最佳单请求生成tokens/s: {:.2}",
+                            ((total_completion_tokens as f64 / token_stats_available as f64)
+                                * 1000.0)
+                                / min_duration_ms
+                        );
+                    } else {
+                        println!("最佳单请求生成tokens/s: 无法计算（时间过短）");
+                    }
+
+                    if max_duration_ms > 0.0 {
+                        println!(
+                            "最差单请求生成tokens/s: {:.2}",
+                            ((total_completion_tokens as f64 / token_stats_available as f64)
+                                * 1000.0)
+                                / max_duration_ms
+                        );
+                    } else {
+                        println!("最差单请求生成tokens/s: 无法计算（时间过短）");
+                    }
+                } else {
+                    // 如果没有token统计，回退到估算
+                    let estimated_total_tokens = total_chunks;
+                    println!("估算总生成tokens (数据块): {}", estimated_total_tokens);
+
+                    let actual_concurrent_micros = actual_concurrent_time.as_micros() as f64;
+                    if actual_concurrent_micros > 0.0 {
+                        println!(
+                            "整体tokens/s (估算): {:.2}",
+                            (estimated_total_tokens as f64 * 1_000_000.0)
+                                / actual_concurrent_micros
+                        );
+                    } else {
+                        println!("整体tokens/s (估算): 无法计算（时间过短）");
+                    }
+
+                    if avg_single_request_time_ms > 0.0 {
+                        println!(
+                            "平均单请求tokens/s (估算): {:.2}",
+                            ((estimated_total_tokens as f64 / successful_count as f64) * 1000.0)
+                                / avg_single_request_time_ms
+                        );
+                    } else {
+                        println!("平均单请求tokens/s (估算): 无法计算（时间过短）");
+                    }
+                }
+
+                // 并发效率分析
+                let sequential_time_ms = avg_single_request_time_ms * successful_count as f64;
+                let concurrent_time_micros = actual_concurrent_time.as_micros() as f64;
+                let concurrent_time_ms = concurrent_time_micros / 1000.0;
+
+                println!("\n=== 并发效率分析 ===");
+                println!("顺序执行预估时间: {:.2}s", sequential_time_ms / 1000.0);
+                println!("并发执行实际时间: {:.3}s", concurrent_time_ms / 1000.0);
+
+                if concurrent_time_micros > 0.0 {
+                    let speedup = sequential_time_ms / concurrent_time_ms;
+                    let efficiency = speedup / successful_count as f64 * 100.0;
+                    println!("并发加速比: {:.2}x", speedup);
+                    println!("并发效率: {:.1}%", efficiency);
+                } else {
+                    println!("并发加速比: 无法计算（时间过短）");
+                    println!("并发效率: 无法计算（时间过短）");
+                }
             }
 
             // 验证至少有一些请求成功
@@ -363,7 +545,7 @@ fn test_blacklisted_check() {
                 send_single_request(port, &client, &headers, req_body_normal, Some(1)).await;
 
             match normal_result {
-                Ok((_, _, content, _)) => {
+                Ok((_, _, content, _, _, _, _)) => {
                     info!("Normal request completed successfully");
                     info!("Generated content length: {}", content.len());
                     assert!(
@@ -386,7 +568,7 @@ fn test_blacklisted_check() {
                 send_single_request(port, &client, &headers, req_body_test, Some(2)).await;
 
             match test_result {
-                Ok((_, _, content, _)) => {
+                Ok((_, _, content, _, _, _, _)) => {
                     info!("Test request completed");
                     info!("Generated content: {content}");
 
@@ -419,7 +601,7 @@ fn test_blacklisted_check() {
                     send_single_request(port, &client, &headers, req_body, Some(3 + i)).await;
 
                 match result {
-                    Ok((_, _, content, _)) => {
+                    Ok((_, _, content, _, _, _, _)) => {
                         info!("Blacklist test {idx} completed");
                         info!("Content: {content}");
 

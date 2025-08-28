@@ -80,6 +80,26 @@ pub(crate) fn chat_completion_response_stream(
     answer: Option<String>,
     finish_reason: Option<FinishReason>,
 ) -> CreateChatCompletionStreamResponse {
+    chat_completion_response_stream_with_usage(
+        id,
+        created,
+        model,
+        think,
+        answer,
+        finish_reason,
+        None,
+    )
+}
+
+pub(crate) fn chat_completion_response_stream_with_usage(
+    id: usize,
+    created: i32,
+    model: String,
+    think: Option<String>,
+    answer: Option<String>,
+    finish_reason: Option<FinishReason>,
+    usage: Option<CompletionUsage>,
+) -> CreateChatCompletionStreamResponse {
     let choices = vec![CreateChatCompletionStreamResponseChoices {
         delta: ChatCompletionStreamResponseDelta {
             reasoning_content: think,
@@ -95,6 +115,7 @@ pub(crate) fn chat_completion_response_stream(
         created,
         model,
         choices,
+        usage,
         ..Default::default()
     }
 }

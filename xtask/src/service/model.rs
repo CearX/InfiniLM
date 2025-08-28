@@ -214,7 +214,7 @@ impl Model {
 
                 let think = self.terminal.decode(think, &mut session_info.buf);
                 let content = self.terminal.decode(tokens, &mut session_info.buf);
-                debug!("解码完成：{tokens:?} -> {think:?} | {content:?}");
+                // debug!("解码完成：{tokens:?} -> {think:?} | {content:?}");
 
                 // Truncate accumulated_content to save memory, keeping a suffix long enough
                 // for the longest blacklisted word.

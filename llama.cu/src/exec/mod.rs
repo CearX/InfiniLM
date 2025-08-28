@@ -26,7 +26,7 @@ pub use engine::Progress;
 pub(crate) use engine::engine;
 pub(crate) use kv_cache::KVCache;
 pub(crate) use mamba_engine::mamba_engine;
-pub use mamba_engine::take_stored_logprobs;
+pub use mamba_engine::{set_ppl_mode, take_stored_logprobs};
 
 pub(crate) enum Command {
     ShutDown,

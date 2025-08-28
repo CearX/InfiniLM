@@ -32,7 +32,7 @@ use utils::meta;
 pub use crate::op::random_sample::SampleArgs;
 pub use batch::{Cache, Session, SessionId};
 pub use exec::Progress;
-pub use exec::take_stored_logprobs;
+pub use exec::{set_ppl_mode, take_stored_logprobs};
 pub use model::Message;
 pub use tokeneer::{TextBuf, utok};
 

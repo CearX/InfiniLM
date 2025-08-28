@@ -51,16 +51,22 @@ impl<'a> Message<'a> {
 impl GGufModel<'_> {
     pub fn chat_template<M: Method>(&self, tokenizer: &Tokeneer<M>) -> Option<ChatTemplate> {
         let template = match self.tokenizer_chat_template() {
-            Ok(t) => t,
-            Err(GGufMetaError::NotExist) => return None,
+            Ok(t) => t.to_string(),
+            Err(GGufMetaError::NotExist) => {
+                // 为Mamba模型提供默认的聊天模板
+                warn!("No chat template found in model, using default template");
+                "{% for message in messages %}{% if message['role'] == 'user' %}{{ message['content'] }}{% elif message['role'] == 'assistant' %}{{ message['content'] }}{% endif %}{% endfor %}{% if add_generation_prompt %}{{ '' }}{% endif %}".to_string()
+            }
             Err(e) => panic!("Failed to get tokenizer chat template: {e:?}"),
         };
-        let bos = self.tokenizer_ggml_bos_token_id().unwrap();
-        let eos = self.tokenizer_ggml_eos_token_id().unwrap();
+
+        // 尝试获取BOS/EOS token，如果失败则使用默认值
+        let bos = self.tokenizer_ggml_bos_token_id().unwrap_or(1);
+        let eos = self.tokenizer_ggml_eos_token_id().unwrap_or(2);
 
         let mut buf = TextBuf::new();
         Some(ChatTemplate::new(
-            template.into(),
+            template,
             tokenizer.decode(&[bos], &mut buf),
             tokenizer.decode(&[eos], &mut buf),
         ))

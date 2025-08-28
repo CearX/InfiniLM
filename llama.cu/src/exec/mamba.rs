@@ -17,7 +17,7 @@ pub fn mamba_infer(
     model_path: std::path::PathBuf,
     text: &str,
     use_cuda_graph: bool,
-) -> (String, usize) {
+) -> (String, usize, f64) {
     use crate::model::GGufModel;
     // 初始化 CUDA
     assert!(cuda::init().is_ok());
@@ -173,7 +173,9 @@ pub fn mamba_infer(
         // let text = String::from_utf8_lossy(&s.into_bytes()).to_string();
         let text = tokenizer.decode(&generated, false).unwrap();
 
-        (text, tokens.len())
+        let total_infer_time = (prefill_time + decode_time).as_secs_f64();
+
+        (text, tokens.len(), total_infer_time)
     })
 }
 
@@ -187,11 +189,12 @@ mod tests {
         let start = Instant::now();
         let model = PathBuf::from("/home/cearx/Mamba-2.8B-hf-v1.0-F16.gguf");
         let prompt = "Once upon a time,";
-        let (text, len) = mamba_infer(model, prompt, false);
+        let (text, len, infer_time) = mamba_infer(model, prompt, false);
         let end = Instant::now();
-        let tokens_per_second = len as f64 / (end - start).as_secs_f64();
-        let infer_time = end - start;
-        println!("infer time   = {:.2} s", infer_time.as_secs_f64());
+        let tokens_per_second = len as f64 / infer_time;
+        let total_time = end - start;
+        println!("total time   = {:.2} s", total_time.as_secs_f64());
+        println!("infer time   = {:.2} s", infer_time);
         println!("tokens/s     = {:.2}", tokens_per_second);
         println!("prompt       = {}", prompt);
         println!("output text  = {}", text);

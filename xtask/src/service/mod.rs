@@ -9,7 +9,8 @@ use crate::{
     parse_gpus,
     service::{
         openai::{
-            chat_completion_response, chat_completion_response_stream, completion_response,
+            chat_completion_response, chat_completion_response_stream,
+            chat_completion_response_stream_with_usage, completion_response,
             completion_response_with_logprobs,
         },
         response::text_stream,
@@ -28,7 +29,7 @@ use llama_cu::Service;
 use log::{info, warn};
 use model::Model;
 use openai::create_models;
-use openai_struct::{CreateChatCompletionRequest, CreateCompletionRequest};
+use openai_struct::{CompletionUsage, CreateChatCompletionRequest, CreateCompletionRequest};
 use response::error;
 use response::json;
 use serde_json::Value;
@@ -263,6 +264,8 @@ impl HyperService<Request<Incoming>> for App {
                     // 修改策略：让PPL请求也走正常推理流程，但强制max_tokens=1来触发logprobs计算
                     let is_ppl_request = max_tokens == 0 && echo && logprobs.is_some();
                     if is_ppl_request {
+                        // 设置PPL模式标记，让引擎知道需要计算logprobs
+                        llama_cu::set_ppl_mode(true);
                         // 修改请求参数：设置max_tokens=1来触发推理，但稍后我们只返回prompt的logprobs
                         req.max_tokens = Some(1);
                     }
@@ -313,6 +316,8 @@ impl HyperService<Request<Incoming>> for App {
 
                     // 检查是否是PPL请求，如果是，返回logprobs响应
                     if is_ppl_request {
+                        // 清除PPL模式标记
+                        llama_cu::set_ppl_mode(false);
                         // 尝试从全局存储获取logprobs
                         if let Some(stored_logprobs) = llama_cu::take_stored_logprobs() {
                             // 分词以获取token信息
@@ -381,6 +386,7 @@ impl HyperService<Request<Incoming>> for App {
                             );
                             return Ok(json(response));
                         } else {
+                            // 即使失败也要清除PPL模式标记（虽然上面已经清除了，但为了保险）
                             return Ok(error(Error::InternalError(
                                 "No logprobs were computed during inference".to_string(),
                             )));
@@ -443,14 +449,22 @@ impl HyperService<Request<Incoming>> for App {
                                             None,
                                         )
                                     }
-                                    model::Output::Finish { reason, .. } => {
-                                        chat_completion_response_stream(
+                                    model::Output::Finish { reason, num_tokens } => {
+                                        let usage = Some(CompletionUsage {
+                                            prompt_tokens: num_tokens[0] as _,
+                                            completion_tokens: (num_tokens[1] - num_tokens[0]) as _,
+                                            total_tokens: num_tokens[1] as _,
+                                            completion_tokens_details: None,
+                                            prompt_tokens_details: None,
+                                        });
+                                        chat_completion_response_stream_with_usage(
                                             id,
                                             created,
                                             model_name.clone(),
                                             None,
                                             None,
                                             Some(reason),
+                                            usage,
                                         )
                                     }
                                 };

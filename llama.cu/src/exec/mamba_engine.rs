@@ -33,14 +33,34 @@ use tokeneer::utok;
 // 全局存储用于PPL请求的logprobs
 static LOGPROBS_STORAGE: OnceLock<Mutex<Option<Vec<f32>>>> = OnceLock::new();
 
+// 全局PPL模式标记：指示当前是否有PPL请求正在处理
+static PPL_MODE_ACTIVE: OnceLock<Mutex<bool>> = OnceLock::new();
+
+/// Set PPL mode for current request
+pub fn set_ppl_mode(active: bool) {
+    let storage = PPL_MODE_ACTIVE.get_or_init(|| Mutex::new(false));
+    if let Ok(mut guard) = storage.lock() {
+        *guard = active;
+    }
+}
+
+/// Check if PPL mode is currently active
+fn is_ppl_mode_active() -> bool {
+    let storage = PPL_MODE_ACTIVE.get_or_init(|| Mutex::new(false));
+    if let Ok(guard) = storage.lock() {
+        *guard
+    } else {
+        false
+    }
+}
+
 /// Check if we should compute logprobs based on the requests
 fn should_compute_logprobs(reqs: &[Req<CacheParts>]) -> bool {
-    // 检查是否有 PPL 请求
-    // 简单判断：如果有请求，就计算 logprobs
-    let should_compute = !reqs.is_empty();
+    // 检查是否有PPL请求正在处理
+    let should_compute = is_ppl_mode_active() && !reqs.is_empty();
     if should_compute {
         println!(
-            "DEBUG: should_compute_logprobs = true, reqs.len() = {}",
+            "DEBUG: should_compute_logprobs = true (PPL mode), reqs.len() = {}",
             reqs.len()
         );
     }
@@ -270,9 +290,9 @@ pub fn take_stored_logprobs() -> Option<Vec<f32>> {
 }
 
 // Mamba 专用的推理引擎参数
-const MAMBA_NTOKS: [usize; 5] = [1, 8, 32, 128, 512];
+const MAMBA_NTOKS: [usize; 7] = [1, 8, 32, 64, 128, 256, 1024];
 const MAMBA_CHUNKED_PREFILL_LEN: Option<usize> = None; // 关闭 chunked prefill 以支持 PPL
-const MAMBA_MAX_TOKS: usize = 512;
+const MAMBA_MAX_TOKS: usize = 1024;
 
 pub(crate) fn mamba_engine(
     mamba: Mamba<Tensor<&[u8], 2>>,
@@ -577,10 +597,10 @@ impl<T: IntoIterator<Item = usize>> MambaWorker<T> {
                         out_idx.clone()
                     };
 
-                    // 如果没有需要计算的位置，则跳过
-                    if effective_out_idx.is_empty() {
-                        continue;
-                    }
+                    // // 如果没有需要计算的位置，则跳过
+                    // if effective_out_idx.is_empty() {
+                    //     continue;
+                    // }
 
                     // println!("DEBUG: original tokens: {:?}", tokens);
                     // println!("DEBUG: token len: {:?}", tokens.len());
@@ -637,18 +657,18 @@ impl<T: IntoIterator<Item = usize>> MambaWorker<T> {
                         println!("DEBUG: Stored logprobs");
                     }
 
-                    // 跳过采样，创建空的 kv_pairs
-                    let kv_pairs = if logits.dt() == nn::digit_layout::types::F32 {
-                        println!("Skipping sampling for f32 logits");
-                        // 创建大小为 0 的 KVPair DevMem
-                        stream.malloc::<KVPair>(1)
-                    } else {
-                        // 正常采样
-                        sample_manager.sample(logits, &input, &sample, &stream)
-                    };
+                    // // 跳过采样，创建空的 kv_pairs
+                    // let kv_pairs = if logits.dt() == nn::digit_layout::types::F32 {
+                    //     println!("Skipping sampling for f32 logits");
+                    //     // 创建大小为 0 的 KVPair DevMem
+                    //     stream.malloc::<KVPair>(1)
+                    // } else {
+                    //     // 正常采样
+                    //     sample_manager.sample(logits, &input, &sample, &stream)
+                    // };
 
                     // 采样
-                    // let kv_pairs = sample_manager.sample(logits, &input, &sample, &stream);
+                    let kv_pairs = sample_manager.sample(logits, &input, &sample, &stream);
                     stream.free(input);
                     stream.memcpy_d2d(&mut pre_kv_pairs[..kv_pairs.len()], &kv_pairs);
 

@@ -189,7 +189,7 @@ async fn test_prompt(
     )
     .await
     {
-        Ok(Ok((_, _, content, duration))) => {
+        Ok(Ok((_, _, content, duration, _, _, _))) => {
             let is_blocked =
                 content.contains(BLACKLISTED_SIGNAL) || content.is_empty() || content.len() < 10;
 
